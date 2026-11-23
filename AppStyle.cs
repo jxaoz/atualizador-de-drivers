@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace DriverUpdater
@@ -8,17 +9,29 @@ namespace DriverUpdater
     internal static class AppStyle
     {
         public const string Name = "Atualizador de drivers";
-        public static readonly Color Surface = SystemColors.Window;
-        public static readonly Color Text = SystemInformation.HighContrast ? SystemColors.WindowText : Color.FromArgb(35, 25, 67);
-        public static readonly Color Muted = SystemInformation.HighContrast ? SystemColors.WindowText : Color.FromArgb(88, 76, 119);
-        public static readonly Color Background = SystemInformation.HighContrast ? SystemColors.Control : Color.FromArgb(246, 243, 255);
-        public static readonly Color Header = SystemInformation.HighContrast ? SystemColors.Highlight : Color.FromArgb(47, 26, 128);
-        public static readonly Color HeaderText = SystemInformation.HighContrast ? SystemColors.HighlightText : Color.White;
-        public static readonly Color Accent = SystemInformation.HighContrast ? SystemColors.HotTrack : Color.FromArgb(88, 49, 196);
-        public static readonly Color Line = SystemInformation.HighContrast ? SystemColors.WindowText : Color.FromArgb(229, 223, 246);
+        private const int CaptionColorAttribute = 35;
+        private const int CaptionTextColorAttribute = 36;
+        private const int DefaultCaptionColor = -1;
         private static readonly Font WindowFont = new Font("Segoe UI", 10F);
         private static readonly Font HeaderFont = new Font("Segoe UI Light", 23F);
         private static readonly Font GridHeaderFont = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+        private static readonly ToolStripRenderer DarkMenuRenderer = new ToolStripProfessionalRenderer(new DarkMenuColors());
+
+        public static bool IsDark { get; set; }
+        public static bool UsesDarkPalette { get { return IsDark && !SystemInformation.HighContrast; } }
+        public static Color Surface { get { return Palette(SystemColors.Window, Color.FromArgb(33, 27, 49), SystemColors.Window); } }
+        public static Color Text { get { return Palette(Color.FromArgb(35, 25, 67), Color.FromArgb(245, 240, 255), SystemColors.WindowText); } }
+        public static Color Muted { get { return Palette(Color.FromArgb(88, 76, 119), Color.FromArgb(190, 177, 213), SystemColors.WindowText); } }
+        public static Color Background { get { return Palette(Color.FromArgb(246, 243, 255), Color.FromArgb(21, 18, 34), SystemColors.Control); } }
+        public static Color Header { get { return Palette(Color.FromArgb(47, 26, 128), Color.FromArgb(37, 22, 78), SystemColors.Highlight); } }
+        public static Color HeaderText { get { return SystemInformation.HighContrast ? SystemColors.HighlightText : Color.White; } }
+        public static Color Accent { get { return Palette(Color.FromArgb(88, 49, 196), Color.FromArgb(188, 163, 255), SystemColors.HotTrack); } }
+        public static Color Line { get { return Palette(Color.FromArgb(229, 223, 246), Color.FromArgb(66, 54, 86), SystemColors.WindowText); } }
+
+        private static Color Palette(Color light, Color dark, Color highContrast)
+        {
+            return SystemInformation.HighContrast ? highContrast : IsDark ? dark : light;
+        }
 
         public static void SetWindow(Form window, string title, Size size, Size minimum)
         {
@@ -30,6 +43,9 @@ namespace DriverUpdater
             window.AutoScaleDimensions = new SizeF(96, 96);
             window.Font = WindowFont;
             window.BackColor = Background;
+            window.ForeColor = Text;
+            window.HandleCreated += delegate { ApplyCaption(window); };
+            window.Shown += delegate { ApplyTheme(window); };
             Icon icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             if (icon != null)
                 window.Icon = icon;
@@ -46,17 +62,8 @@ namespace DriverUpdater
             var content = MakeLayout(2);
             content.RowStyles.Add(new RowStyle(SizeType.Percent, 62));
             content.RowStyles.Add(new RowStyle(SizeType.Percent, 38));
-            var titleLabel = new Label
-            {
-                Text = title,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Dock = DockStyle.Fill,
-                BackColor = Color.Transparent,
-                AutoEllipsis = true,
-                Margin = Padding.Empty,
-                Font = HeaderFont,
-                ForeColor = HeaderText,
-            };
+            Label titleLabel = MakeLabel(title, HeaderText);
+            titleLabel.Font = HeaderFont;
             Label subtitleLabel = MakeLabel(subtitle, HeaderText);
             subtitleLabel.Margin = new Padding(2, 0, 0, 0);
             content.Controls.Add(titleLabel, 0, 0);
@@ -90,7 +97,8 @@ namespace DriverUpdater
 
         public static Label MakeLabel(string text, Color color)
         {
-            return new Label
+            LabelTone tone = color == HeaderText ? LabelTone.Header : color == Muted ? LabelTone.Muted : LabelTone.Text;
+            return new PaletteLabel(tone)
             {
                 Text = text,
                 BackColor = Color.Transparent,
@@ -128,17 +136,132 @@ namespace DriverUpdater
                 StandardTab = true
             };
             grid.RowTemplate.Height = 36;
-            grid.DefaultCellStyle.BackColor = Surface;
-            grid.DefaultCellStyle.ForeColor = Text;
-            grid.DefaultCellStyle.SelectionBackColor = SystemInformation.HighContrast ? SystemColors.Highlight : Color.FromArgb(235, 222, 255);
-            grid.DefaultCellStyle.SelectionForeColor = SystemInformation.HighContrast ? SystemColors.HighlightText : Text;
             grid.DefaultCellStyle.Padding = new Padding(8, 4, 5, 4);
-            grid.AlternatingRowsDefaultCellStyle.BackColor = SystemInformation.HighContrast ? Surface : Color.FromArgb(251, 249, 255);
-            grid.ColumnHeadersDefaultCellStyle.BackColor = SystemInformation.HighContrast ? Background : Color.FromArgb(241, 236, 254);
-            grid.ColumnHeadersDefaultCellStyle.ForeColor = Text;
             grid.ColumnHeadersDefaultCellStyle.Font = GridHeaderFont;
             grid.ColumnHeadersDefaultCellStyle.Padding = new Padding(8, 0, 5, 0);
+            ApplyGridTheme(grid);
             return grid;
+        }
+
+        public static void ApplyTheme(Control root)
+        {
+            ApplyThemeToTree(root);
+            root.Invalidate(true);
+        }
+
+        private static void ApplyThemeToTree(Control control)
+        {
+            var form = control as Form;
+            var grid = control as DataGridView;
+            var input = control as TextBoxBase;
+            var link = control as LinkLabel;
+            var label = control as PaletteLabel;
+            var menu = control as ContextMenuStrip;
+            if (form != null)
+            {
+                form.BackColor = Background;
+                form.ForeColor = Text;
+                ApplyCaption(form);
+            }
+            else if (grid != null)
+            {
+                ApplyGridTheme(grid);
+            }
+            else if (input != null)
+            {
+                input.BackColor = Surface;
+                input.ForeColor = Text;
+            }
+            else if (link != null)
+            {
+                link.LinkColor = Accent;
+                link.VisitedLinkColor = Accent;
+                link.ActiveLinkColor = Text;
+            }
+            else if (label != null)
+            {
+                label.ApplyTheme();
+            }
+            else if (menu != null)
+            {
+                menu.BackColor = Surface;
+                menu.ForeColor = Text;
+                if (UsesDarkPalette)
+                    menu.Renderer = DarkMenuRenderer;
+                else
+                    menu.RenderMode = ToolStripRenderMode.ManagerRenderMode;
+            }
+
+            foreach (Control child in control.Controls)
+                ApplyThemeToTree(child);
+        }
+
+        private static void ApplyGridTheme(DataGridView grid)
+        {
+            grid.BackgroundColor = Surface;
+            grid.GridColor = Line;
+            grid.DefaultCellStyle.BackColor = Surface;
+            grid.DefaultCellStyle.ForeColor = Text;
+            grid.DefaultCellStyle.SelectionBackColor = Palette(Color.FromArgb(235, 222, 255), Color.FromArgb(74, 52, 116), SystemColors.Highlight);
+            grid.DefaultCellStyle.SelectionForeColor = SystemInformation.HighContrast ? SystemColors.HighlightText : Text;
+            grid.AlternatingRowsDefaultCellStyle.BackColor = Palette(Color.FromArgb(251, 249, 255), Color.FromArgb(39, 32, 58), Surface);
+            grid.ColumnHeadersDefaultCellStyle.BackColor = Palette(Color.FromArgb(241, 236, 254), Color.FromArgb(49, 39, 74), Background);
+            grid.ColumnHeadersDefaultCellStyle.ForeColor = Text;
+        }
+
+        private static void ApplyCaption(Form form)
+        {
+            if (!form.IsHandleCreated)
+                return;
+
+            // Windows 11 accepts explicit COLORREF values. Earlier Windows releases retain their default caption.
+            int caption = UsesDarkPalette ? ColorTranslator.ToWin32(Background) : DefaultCaptionColor;
+            int captionText = UsesDarkPalette ? ColorTranslator.ToWin32(Text) : DefaultCaptionColor;
+            DwmSetWindowAttribute(form.Handle, CaptionColorAttribute, ref caption, sizeof(int));
+            DwmSetWindowAttribute(form.Handle, CaptionTextColorAttribute, ref captionText, sizeof(int));
+        }
+
+        [DllImport("dwmapi.dll", ExactSpelling = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int valueSize);
+
+        private enum LabelTone
+        {
+            Text,
+            Muted,
+            Header
+        }
+
+        private sealed class PaletteLabel : Label
+        {
+            private readonly LabelTone tone;
+
+            public PaletteLabel(LabelTone tone)
+            {
+                this.tone = tone;
+            }
+
+            public void ApplyTheme()
+            {
+                ForeColor = tone == LabelTone.Header ? HeaderText : tone == LabelTone.Muted ? Muted : AppStyle.Text;
+            }
+        }
+
+        private sealed class DarkMenuColors : ProfessionalColorTable
+        {
+            private static readonly Color Selected = Color.FromArgb(74, 52, 116);
+
+            public override Color ToolStripDropDownBackground { get { return Surface; } }
+            public override Color ImageMarginGradientBegin { get { return Surface; } }
+            public override Color ImageMarginGradientMiddle { get { return Surface; } }
+            public override Color ImageMarginGradientEnd { get { return Surface; } }
+            public override Color MenuBorder { get { return Line; } }
+            public override Color MenuItemBorder { get { return Accent; } }
+            public override Color MenuItemSelected { get { return Selected; } }
+            public override Color MenuItemSelectedGradientBegin { get { return Selected; } }
+            public override Color MenuItemSelectedGradientEnd { get { return Selected; } }
+            public override Color SeparatorDark { get { return Line; } }
+            public override Color SeparatorLight { get { return Surface; } }
         }
 
         public static void AddTextColumn(DataGridView grid, string header, int weight, int minimum)
@@ -236,23 +359,24 @@ namespace DriverUpdater
                 {
                     bool pressed = hovered && Capture && (MouseButtons & MouseButtons.Left) != 0;
                     bool accented = Enabled && primary;
-                    if (accented)
+                    if (accented && !SystemInformation.HighContrast)
                     {
                         Color start = hovered ? Color.FromArgb(92, 57, 211) : Color.FromArgb(80, 48, 192);
                         Color end = hovered ? Color.FromArgb(134, 57, 200) : Color.FromArgb(113, 47, 176);
                         if (pressed)
                         {
                             start = Header;
-                            end = Accent;
+                            end = Color.FromArgb(88, 49, 196);
                         }
                         using (var gradient = new LinearGradientBrush(bounds, start, end, 16F))
                             graphics.FillPath(gradient, shape);
                     }
                     else
                     {
-                        Color surface = !Enabled ? Background : hovered ? Color.FromArgb(241, 234, 255) : Surface;
+                        Color hover = Palette(Color.FromArgb(241, 234, 255), Color.FromArgb(52, 42, 77), SystemColors.Control);
+                        Color surface = accented ? SystemColors.Highlight : !Enabled ? Background : hovered ? hover : Surface;
                         using (var fill = new SolidBrush(surface))
-                        using (var border = new Pen(Enabled ? Color.FromArgb(217, 206, 242) : Line))
+                        using (var border = new Pen(Enabled ? Palette(Color.FromArgb(217, 206, 242), Color.FromArgb(88, 70, 114), Line) : Line))
                         {
                             graphics.FillPath(fill, shape);
                             graphics.DrawPath(border, shape);

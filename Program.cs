@@ -5,21 +5,26 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Security;
 using System.Security.Principal;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 [assembly: AssemblyTitle("Atualizador de drivers")]
 [assembly: AssemblyDescription("Consulta e instalação de atualizações de driver pelo Windows Update")]
 [assembly: AssemblyProduct("Atualizador de drivers")]
-[assembly: AssemblyVersion("1.1.1.0")]
-[assembly: AssemblyFileVersion("1.1.1.0")]
-[assembly: AssemblyInformationalVersion("1.1.1")]
+[assembly: AssemblyVersion("1.2.0.0")]
+[assembly: AssemblyFileVersion("1.2.0.0")]
+[assembly: AssemblyInformationalVersion("1.2.0")]
 
 namespace DriverUpdater
 {
     internal static class Program
     {
         private const string InstallArgument = "--install";
+        private const string NightArgument = "--night";
+        private const string PreferenceKey = @"Software\AtualizadorDeDrivers";
+        private const string NightModeValue = "NightMode";
 
         [STAThread]
         private static int Main(string[] args)
@@ -30,18 +35,21 @@ namespace DriverUpdater
 
             if (args.Length == 0)
             {
+                AppStyle.IsDark = ReadNightMode();
                 Application.Run(new MainWindow());
                 return 0;
             }
 
             var selections = new List<DriverOffer>();
-            if (!TryParseInstallation(args, selections) || !IsAdministrator())
+            bool useDarkTheme;
+            if (!TryParseInstallation(args, selections, out useDarkTheme) || !IsAdministrator())
             {
                 MessageBox.Show("Abra o aplicativo e selecione as atualizações que deseja instalar.",
                     "Atualizador de drivers", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return 2;
             }
 
+            AppStyle.IsDark = useDarkTheme;
             using (var window = new InstallWindow(selections))
             {
                 Application.Run(window);
@@ -49,9 +57,11 @@ namespace DriverUpdater
             }
         }
 
-        public static Process StartInstaller(IList<DriverOffer> selections)
+        public static Process StartInstaller(IList<DriverOffer> selections, bool useDarkTheme)
         {
             var args = new List<string> { InstallArgument };
+            if (useDarkTheme)
+                args.Add(NightArgument);
             foreach (DriverOffer offer in selections)
             {
                 args.Add(Guid.Parse(offer.Id).ToString("D") + ":" +
@@ -65,6 +75,33 @@ namespace DriverUpdater
                 Verb = "runas",
                 WorkingDirectory = Path.GetDirectoryName(executable)
             });
+        }
+
+        internal static bool ReadNightMode()
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(PreferenceKey))
+                    return key != null && Equals(key.GetValue(NightModeValue), 1);
+            }
+            catch (SecurityException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+            catch (IOException) { return false; }
+        }
+
+        internal static void SaveNightMode(bool enabled)
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(PreferenceKey))
+                {
+                    if (key != null)
+                        key.SetValue(NightModeValue, enabled ? 1 : 0, RegistryValueKind.DWord);
+                }
+            }
+            catch (SecurityException) { }
+            catch (UnauthorizedAccessException) { }
+            catch (IOException) { }
         }
 
         public static bool PermissionWasDeclined(Exception error)
@@ -81,13 +118,19 @@ namespace DriverUpdater
             }
         }
 
-        private static bool TryParseInstallation(string[] args, List<DriverOffer> selections)
+        private static bool TryParseInstallation(string[] args, List<DriverOffer> selections, out bool useDarkTheme)
         {
+            useDarkTheme = false;
             if (args.Length < 2 || args[0] != InstallArgument)
                 return false;
 
+            useDarkTheme = args[1] == NightArgument;
+            int firstOffer = useDarkTheme ? 2 : 1;
+            if (firstOffer == args.Length)
+                return false;
+
             var seen = new HashSet<Tuple<Guid, int>>();
-            for (int i = 1; i < args.Length; i++)
+            for (int i = firstOffer; i < args.Length; i++)
             {
                 string[] parts = args[i].Split(':');
                 Guid id;

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -15,12 +16,19 @@ namespace DriverUpdater
         private const int OfferIconColumn = 1;
         private const int OfferNameColumn = 2;
         private const int OfferDeviceColumn = 3;
+        private const int WindowSizeMessage = 0x0005;
+        private const int SizeMinimized = 1;
+        private const uint InvalidateWindow = 0x0001;
+        private const uint RepaintChildWindows = 0x0080;
+        private const uint RepaintImmediately = 0x0100;
 
         private readonly Panel pageHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = Padding.Empty };
         private readonly Button updateTab = AppStyle.MakeButton("&Atualizações", true, 144);
         private readonly Button inventoryTab = AppStyle.MakeButton("&Drivers instalados", false, 168);
+        private readonly ThemeToggle themeToggle = new ThemeToggle();
         private readonly SpeedometerButton scanButton = new SpeedometerButton { Dock = DockStyle.Fill, Margin = Padding.Empty };
         private readonly Button installButton = AppStyle.MakeButton("Instalar selecionados", true, 190);
+        private readonly Button videoButton = AppStyle.MakeButton("Drivers de vídeo", false, 144);
         private readonly Button refreshButton = AppStyle.MakeButton("Atualizar lista", false, 124);
         private readonly Button inventoryProperties = AppStyle.MakeButton("Propriedades", false, 123);
         private readonly Label scanTitle = HeroTitle("Pronto para buscar", 29);
@@ -30,13 +38,14 @@ namespace DriverUpdater
         private readonly Label inventoryStatus = AppStyle.MakeLabel("Carregando drivers instalados…", AppStyle.Muted);
         private readonly Label selectionStatus = AppStyle.MakeLabel(string.Empty, AppStyle.Text);
         private readonly DataGridView updateGrid = AppStyle.MakeGrid("Atualizações disponíveis");
+        private readonly AllDriversCurrent allDriversCurrent = new AllDriversCurrent { Visible = false };
         private readonly DataGridView inventoryGrid = AppStyle.MakeGrid("Drivers instalados");
         private readonly TextBox filter = new TextBox { AccessibleName = "Filtrar drivers instalados", Dock = DockStyle.Fill, Margin = Padding.Empty };
         private readonly ToolTip toolTip = new ToolTip();
         private readonly ContextMenuStrip updateMenu = new ContextMenuStrip();
         private readonly ContextMenuStrip inventoryMenu = new ContextMenuStrip();
         private readonly DriverCategoryIcons categoryIcons = new DriverCategoryIcons();
-        private readonly Control updatePage;
+        private readonly TableLayoutPanel updatePage;
         private readonly Control inventoryPage;
         private Bitmap brandImage;
         private List<InstalledDriver> inventory = new List<InstalledDriver>();
@@ -45,6 +54,7 @@ namespace DriverUpdater
         private bool scanning;
         private bool installing;
         private bool refreshingOffers;
+        private bool wasMinimized;
 
         public MainWindow()
         {
@@ -66,7 +76,16 @@ namespace DriverUpdater
             canvas.Controls.Add(shell);
             Controls.Add(canvas);
 
-            scanButton.Click += async delegate { await ScanAsync(); };
+            themeToggle.Checked = AppStyle.IsDark;
+            themeToggle.CheckedChanged += delegate
+            {
+                AppStyle.IsDark = themeToggle.Checked;
+                ApplyCurrentTheme();
+                Program.SaveNightMode(themeToggle.Checked);
+            };
+
+            scanButton.Click += async delegate { await ScanAsync(false); };
+            videoButton.Click += async delegate { await ShowVideoDriversAsync(); };
             installButton.Click += async delegate { await InstallAsync(); };
             refreshButton.Click += async delegate { await RefreshInventoryAsync(); };
             inventoryProperties.Click += delegate { OpenProperties(inventoryGrid.CurrentRow); };
@@ -91,22 +110,17 @@ namespace DriverUpdater
             };
             SwitchPage(false);
             UpdateControls();
+            ApplyCurrentTheme();
         }
 
-        private Control BuildUpdates()
+        private TableLayoutPanel BuildUpdates()
         {
             var page = AppStyle.MakeLayout(2);
             page.BackColor = Color.Transparent;
             page.RowStyles.Add(new RowStyle(SizeType.Absolute, 234));
             page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             page.Controls.Add(BuildScanHero(), 0, 0);
-            page.Resize += delegate
-            {
-                float scale = DeviceDpi / 96F;
-                float heroHeight = (page.ClientSize.Height < 540 * scale ? 181 : 234) * scale;
-                if (page.RowStyles[0].Height != heroHeight)
-                    page.RowStyles[0].Height = heroHeight;
-            };
+            page.Resize += delegate { ResizeScanHero(page); };
 
             var card = new DashboardPanel(DashboardTone.Card) { Dock = DockStyle.Fill, Margin = new Padding(0, 16, 0, 0) };
             var panel = AppStyle.MakeLayout(3);
@@ -115,7 +129,17 @@ namespace DriverUpdater
             panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 45));
             panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 47));
-            panel.Controls.Add(resultsTitle, 0, 0);
+            var resultsHeading = new TableLayoutPanel
+            {
+                ColumnCount = 2, RowCount = 1, Dock = DockStyle.Fill, Margin = Padding.Empty,
+                BackColor = Color.Transparent
+            };
+            resultsHeading.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            resultsHeading.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 144));
+            videoButton.Anchor = AnchorStyles.Right;
+            resultsHeading.Controls.Add(resultsTitle, 0, 0);
+            resultsHeading.Controls.Add(videoButton, 1, 0);
+            panel.Controls.Add(resultsHeading, 0, 0);
 
             updateGrid.Columns.Add(new DataGridViewCheckBoxColumn
             {
@@ -134,7 +158,13 @@ namespace DriverUpdater
             updateGrid.Columns[OfferNameColumn].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
             updateGrid.Columns[OfferDeviceColumn].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
             updateGrid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCellsExceptHeaders;
-            panel.Controls.Add(updateGrid, 0, 1);
+            var results = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = Padding.Empty };
+            results.Controls.Add(updateGrid);
+            results.Controls.Add(allDriversCurrent);
+            allDriversCurrent.BringToFront();
+            updateGrid.Resize += delegate { LayoutEmptyResult(); };
+            updateGrid.ColumnHeadersHeightChanged += delegate { LayoutEmptyResult(); };
+            panel.Controls.Add(results, 0, 1);
 
             var actions = new TableLayoutPanel
             {
@@ -149,6 +179,24 @@ namespace DriverUpdater
             card.Controls.Add(panel);
             page.Controls.Add(card, 0, 1);
             return page;
+        }
+
+        private void ResizeScanHero(TableLayoutPanel page)
+        {
+            if (wasMinimized || WindowState == FormWindowState.Minimized || ClientSize.Width == 0 || ClientSize.Height == 0)
+                return;
+
+            float scale = DeviceDpi / 96F;
+            float heroHeight = (page.ClientSize.Height < 540 * scale ? 181 : 234) * scale;
+            if (page.RowStyles[0].Height != heroHeight)
+                page.RowStyles[0].Height = heroHeight;
+        }
+
+        private void LayoutEmptyResult()
+        {
+            int headerHeight = updateGrid.ColumnHeadersHeight;
+            allDriversCurrent.SetBounds(updateGrid.Left, updateGrid.Top + headerHeight,
+                updateGrid.ClientSize.Width, Math.Max(0, updateGrid.ClientSize.Height - headerHeight));
         }
 
         private Control BuildScanHero()
@@ -256,12 +304,13 @@ namespace DriverUpdater
         {
             var header = new TableLayoutPanel
             {
-                Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1,
+                Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1,
                 BackColor = Color.Transparent, Margin = Padding.Empty
             };
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 61));
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 153));
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 157));
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
             brandImage = Icon.ToBitmap();
             var brand = new PictureBox
             {
@@ -273,6 +322,9 @@ namespace DriverUpdater
             title.BackColor = Color.Transparent;
             title.Font = new Font("Segoe UI Semilight", 27F);
             header.Controls.Add(title, 1, 0);
+            themeToggle.Anchor = AnchorStyles.Right;
+            themeToggle.Margin = Padding.Empty;
+            header.Controls.Add(themeToggle, 2, 0);
             var settings = new LinkLabel
             {
                 Text = "Windows Update ↗",
@@ -297,8 +349,15 @@ namespace DriverUpdater
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             };
-            header.Controls.Add(settings, 2, 0);
+            header.Controls.Add(settings, 3, 0);
             return header;
+        }
+
+        private void ApplyCurrentTheme()
+        {
+            AppStyle.ApplyTheme(this);
+            AppStyle.ApplyTheme(updateMenu);
+            AppStyle.ApplyTheme(inventoryMenu);
         }
 
         private Control BuildNavigation()
@@ -514,19 +573,33 @@ namespace DriverUpdater
             toolTip.SetToolTip(inventoryStatus, string.Empty);
         }
 
-        private async Task ScanAsync()
+        private async Task ShowVideoDriversAsync()
+        {
+            var graphicsDrivers = inventory.Where(driver => VideoDriversWindow.IsGraphicsClass(driver.Class)).ToList();
+            using (var window = new VideoDriversWindow(graphicsDrivers))
+            {
+                if (window.ShowDialog(this) != DialogResult.Yes)
+                    return;
+            }
+            await ScanAsync(true);
+        }
+
+        private async Task ScanAsync(bool videoOnly)
         {
             if (scanning || installing)
                 return;
 
             scanning = true;
             ClearOffers();
-            SetUpdateStatus("Buscando drivers…", "A consulta pode levar alguns minutos.");
+            SetUpdateStatus(videoOnly ? "Buscando vídeo…" : "Buscando drivers…", "A consulta pode levar alguns minutos.");
             UpdateControls();
             try
             {
                 DriverScan result = await Task.Run(() => DriverServices.Scan());
-                ShowOffers(result);
+                if (videoOnly)
+                    result.Offers.RemoveAll(offer => !VideoDriversWindow.IsGraphicsClass(
+                        DriverCategoryIcons.ResolveOfferClass(offer.Class, offer.Title)));
+                ShowOffers(result, videoOnly);
             }
             catch (Exception error)
             {
@@ -539,7 +612,7 @@ namespace DriverUpdater
             }
         }
 
-        private void ShowOffers(DriverScan result)
+        private void ShowOffers(DriverScan result, bool videoOnly)
         {
             refreshingOffers = true;
             try
@@ -563,12 +636,17 @@ namespace DriverUpdater
                 refreshingOffers = false;
             }
 
-            resultsTitle.Text = result.Offers.Count == 1 ? "1 atualização encontrada" :
-                result.Offers.Count + " atualizações encontradas";
+            resultsTitle.Text = videoOnly
+                ? (result.Offers.Count == 1 ? "1 atualização de vídeo encontrada" : result.Offers.Count + " atualizações de vídeo encontradas")
+                : (result.Offers.Count == 1 ? "1 atualização encontrada" : result.Offers.Count + " atualizações encontradas");
+            LayoutEmptyResult();
+            allDriversCurrent.Visible = !videoOnly && !result.Partial && result.Offers.Count == 0;
             if (result.Partial)
                 SetUpdateStatus("Busca parcial", "O Windows Update retornou um resultado parcial. Tente buscar novamente.", result.Warnings);
             else if (result.Offers.Count == 0)
-                SetUpdateStatus("Busca concluída", "O Windows Update não encontrou atualizações de driver para este computador.");
+                SetUpdateStatus("Busca concluída", videoOnly
+                    ? "Nenhum driver de vídeo disponível no Windows Update. Veja os downloads oficiais em Drivers de vídeo."
+                    : "O Windows Update não encontrou atualizações de driver para este computador.");
             else
                 SetUpdateStatus("Busca concluída", "Marque as atualizações que você deseja instalar.");
             UpdateControls();
@@ -594,13 +672,14 @@ namespace DriverUpdater
                 return;
 
             installing = true;
+            bool useDarkTheme = AppStyle.IsDark;
             SetUpdateStatus("Instalando drivers…", "Acompanhe o resultado na janela de instalação.");
             UpdateControls();
             try
             {
                 int result = await Task.Run(() =>
                 {
-                    using (Process process = Program.StartInstaller(selected))
+                    using (Process process = Program.StartInstaller(selected, useDarkTheme))
                     {
                         if (process == null)
                             throw new InvalidOperationException("O Windows não abriu a janela de instalação.");
@@ -645,6 +724,7 @@ namespace DriverUpdater
         private void ClearOffers()
         {
             refreshingOffers = true;
+            allDriversCurrent.Hide();
             updateGrid.Rows.Clear();
             resultsTitle.Text = "Resultados da busca";
             refreshingOffers = false;
@@ -667,6 +747,7 @@ namespace DriverUpdater
                 updateGrid.ReadOnly = busy;
             scanButton.Enabled = !busy;
             scanButton.Searching = scanning;
+            videoButton.Enabled = !busy && !readingInventory;
             refreshButton.Enabled = !readingInventory && !installing;
             UpdateInventoryProperties();
             int count = GetSelectedOffers().Count;
@@ -744,5 +825,30 @@ namespace DriverUpdater
             if (disposing)
                 categoryIcons.Dispose();
         }
+
+        protected override void WndProc(ref Message message)
+        {
+            bool restoring = false;
+            if (message.Msg == WindowSizeMessage)
+            {
+                bool minimized = message.WParam.ToInt64() == SizeMinimized;
+                restoring = wasMinimized && !minimized;
+                wasMinimized = minimized;
+            }
+
+            base.WndProc(ref message);
+            if (restoring && IsHandleCreated && !IsDisposed)
+            {
+                if (updatePage != null)
+                    ResizeScanHero(updatePage);
+                PerformLayout();
+                RedrawWindow(Handle, IntPtr.Zero, IntPtr.Zero,
+                    InvalidateWindow | RepaintChildWindows | RepaintImmediately);
+            }
+        }
+
+        [DllImport("user32.dll", ExactSpelling = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        private static extern bool RedrawWindow(IntPtr window, IntPtr bounds, IntPtr region, uint flags);
     }
 }

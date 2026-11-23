@@ -53,15 +53,18 @@ namespace DriverUpdater
                     }
 
                     bool scan = tone == DashboardTone.Scan;
-                    using (var fill = new LinearGradientBrush(bounds,
-                        scan ? Color.FromArgb(47, 26, 128) : Color.FromArgb(7, 89, 111),
-                        scan ? Color.FromArgb(169, 61, 196) : Color.FromArgb(39, 72, 188), 17F))
+                    bool dark = AppStyle.UsesDarkPalette;
+                    Color start = scan ? AppStyle.Header : dark ? Color.FromArgb(10, 58, 71) : Color.FromArgb(7, 89, 111);
+                    Color end = scan ? (dark ? Color.FromArgb(105, 40, 139) : Color.FromArgb(169, 61, 196)) :
+                        dark ? Color.FromArgb(38, 49, 114) : Color.FromArgb(39, 72, 188);
+                    using (var fill = new LinearGradientBrush(bounds, start, end, 17F))
                     {
                         if (scan)
                         {
+                            Color middle = dark ? Color.FromArgb(68, 34, 128) : Color.FromArgb(101, 49, 194);
                             fill.InterpolationColors = new ColorBlend
                             {
-                                Colors = new[] { Color.FromArgb(47, 26, 128), Color.FromArgb(101, 49, 194), Color.FromArgb(169, 61, 196) },
+                                Colors = new[] { start, middle, end },
                                 Positions = new[] { 0F, .62F, 1F }
                             };
                         }
@@ -87,15 +90,17 @@ namespace DriverUpdater
                 return;
             }
 
-            using (var gradient = new LinearGradientBrush(ClientRectangle,
-                Color.FromArgb(250, 248, 255), Color.FromArgb(235, 245, 255), 53F))
+            bool dark = AppStyle.UsesDarkPalette;
+            Color start = dark ? Color.FromArgb(24, 19, 38) : Color.FromArgb(250, 248, 255);
+            Color end = dark ? Color.FromArgb(16, 26, 44) : Color.FromArgb(235, 245, 255);
+            using (var gradient = new LinearGradientBrush(ClientRectangle, start, end, 53F))
                 graphics.FillRectangle(gradient, ClientRectangle);
 
             float width = ClientSize.Width;
             float height = ClientSize.Height;
             float orbit = Math.Min(width, height) * .64F;
-            using (var violet = new SolidBrush(Color.FromArgb(35, 180, 145, 250)))
-            using (var blue = new Pen(Color.FromArgb(60, 150, 189, 250), 2F * graphics.DpiX / 96F))
+            using (var violet = new SolidBrush(Color.FromArgb(dark ? 39 : 35, 180, 145, 250)))
+            using (var blue = new Pen(Color.FromArgb(dark ? 75 : 60, 150, 189, 250), 2F * graphics.DpiX / 96F))
             {
                 graphics.FillEllipse(violet, width - orbit * .58F, -orbit * .62F, orbit, orbit);
                 graphics.DrawEllipse(blue, -orbit * .72F, height - orbit * .59F, orbit, orbit);
