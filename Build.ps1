@@ -11,7 +11,8 @@ if (-not (Test-Path -LiteralPath $compiler)) {
     throw 'Compilador do .NET Framework 4.x indisponivel.'
 }
 
-$files = @('Program.cs', 'MainWindow.cs', 'InstallWindow.cs', 'AppStyle.cs', 'DriverServices.cs') |
+$files = @('Program.cs', 'MainWindow.cs', 'InstallWindow.cs', 'AppStyle.cs', 'DashboardVisuals.cs',
+    'SpeedometerButton.cs', 'DriverServices.cs', 'DriverProperties.cs', 'DriverCategoryIcons.cs') |
     ForEach-Object { Join-Path $PSScriptRoot $_ }
 $resolvedOutput = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputPath)
 $manifest = Join-Path $PSScriptRoot 'app.manifest'

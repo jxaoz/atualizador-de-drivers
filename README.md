@@ -1,20 +1,24 @@
-# Atualizador de drivers
+# Atualizador de Drivers
 
-Aplicativo portátil para Windows 10 e 11 com .NET Framework 4.8. Abra `AtualizadorDeDrivers.exe` para listar os drivers dos dispositivos presentes e consultar o Windows Update.
+Aplicativo portátil para Windows 10 e 11. O Atualizador lê os drivers do computador em que é executado e consulta o Windows Update para oferecer atualizações compatíveis, inclusive opcionais.
 
-1. Veja as versões, datas e fornecedores na aba **Drivers instalados**.
-2. Em **Atualizações disponíveis**, clique em **Buscar atualizações**. A busca usa a fonte definida nas configurações do Windows Update, inclusive em computadores gerenciados por uma organização.
-3. Marque os pacotes que deseja aplicar e clique em **Instalar selecionados**. Confirme a operação e a solicitação de administrador do Windows. A janela de instalação apresenta o resultado de cada pacote e avisa quando for necessário reiniciar.
+[Baixar a versão para Windows](https://github.com/jxaoz/atualizador-de-drivers/releases/latest)
 
-A lista mostra as ofertas compatíveis que o Windows Update disponibiliza para o computador. A seleção do Windows considera a compatibilidade e a classificação do driver, além da versão e da data. Isso significa que o site de um fabricante pode oferecer outras versões.
+![Tela inicial com o botão de busca em forma de velocímetro](docs/velocimetro.png)
 
-O inventário é lido no próprio computador. O aplicativo não tem conta, servidor próprio ou telemetria. Ao buscar ou instalar atualizações, o próprio Windows se comunica com a fonte de atualizações configurada para o dispositivo.
+## Como usar
 
-## Compilação
+1. Extraia o ZIP da release e abra `AtualizadorDeDrivers.exe`. O aplicativo usa o .NET Framework 4.8 ou superior.
+2. Clique no velocímetro **Buscar atualizações**. O ponteiro se move enquanto o Windows Update responde.
+3. Marque os pacotes desejados e clique em **Instalar selecionados**. O Windows solicita permissão de administrador. Ao final, confira o resultado de cada atualização e reinicie se o Windows solicitar.
+4. Em **Drivers instalados**, identifique as categorias pelos ícones. Clique com o botão direito em um driver e escolha **Propriedades**. Para ver o painel nativo do dispositivo, clique em **Abrir no Windows**.
 
-Extraia os arquivos para a mesma pasta e execute `Build.ps1` com o Windows PowerShell. O script usa o compilador do .NET Framework e gera `AtualizadorDeDrivers.exe` na pasta do código por padrão. Use `-OutputPath` para definir outro destino.
+![Exemplo ilustrativo de drivers com ícones de vídeo, áudio, rede, USB e outras categorias](docs/categorias.png)
 
-## Referências
+O inventário é lido localmente. Para busca e instalação, o Windows se comunica com a fonte de atualizações definida para aquele computador. As ofertas disponíveis variam conforme o hardware, a versão do Windows e as políticas locais.
 
-- [API do Windows Update Agent](https://learn.microsoft.com/en-us/windows/desktop/Wua_Sdk/portal-client)
-- [Como o Windows seleciona um driver para um dispositivo](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/how-windows-selects-a-driver-for-a-device)
+O executável desta versão está sem assinatura digital. O Windows pode exibir um aviso ou bloquear a abertura de acordo com a configuração do computador. [Microsoft SmartScreen](https://learn.microsoft.com/windows/apps/package-and-deploy/smartscreen-reputation)
+
+## Compilar
+
+Execute `Build.ps1` com o Windows PowerShell em um computador com .NET Framework 4.8. O script gera `AtualizadorDeDrivers.exe` na mesma pasta. Use `-OutputPath` para escolher outro destino.

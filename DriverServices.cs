@@ -9,9 +9,10 @@ namespace DriverUpdater
 {
     internal sealed class InstalledDriver
     {
-        public string Device, Manufacturer, Version;
+        public string Device, Manufacturer, Version, DeviceInstanceId, InfName, Class, Signer;
         public DateTime? Date;
         public string[] HardwareIds;
+        public bool? Signed;
     }
 
     internal sealed class DriverOffer
@@ -77,7 +78,8 @@ namespace DriverUpdater
 
             var drivers = new List<InstalledDriver>();
             using (var query = new ManagementObjectSearcher(
-                "SELECT DeviceID, DeviceName, FriendlyName, Manufacturer, DriverProviderName, DriverVersion, DriverDate, HardwareID, CompatID FROM Win32_PnPSignedDriver"))
+                "SELECT DeviceID, DeviceName, FriendlyName, Manufacturer, DriverProviderName, DriverVersion, DriverDate, " +
+                "HardwareID, CompatID, InfName, DeviceClass, IsSigned, Signer FROM Win32_PnPSignedDriver"))
             using (var packages = query.Get())
             {
                 foreach (ManagementObject package in packages)
@@ -98,7 +100,12 @@ namespace DriverUpdater
                             Manufacturer = FirstText(package["DriverProviderName"], package["Manufacturer"]),
                             Version = ReadText(package["DriverVersion"]),
                             Date = ParseDriverDate(ReadText(package["DriverDate"])),
-                            HardwareIds = CopyHardwareIds(hardwareIds)
+                            HardwareIds = CopyHardwareIds(hardwareIds),
+                            DeviceInstanceId = id,
+                            InfName = ReadText(package["InfName"]),
+                            Class = ReadText(package["DeviceClass"]),
+                            Signed = package["IsSigned"] as bool?,
+                            Signer = ReadText(package["Signer"])
                         });
                     }
                 }
