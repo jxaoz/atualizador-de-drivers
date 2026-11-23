@@ -23,10 +23,12 @@ namespace DriverUpdater
 
         public SpeedometerButton()
         {
+            FlatStyle = FlatStyle.Flat;
+            // Paint the parent background around the gauge before drawing it.
+            SetStyle(ControlStyles.Opaque, false);
             SetStyle(ControlStyles.ResizeRedraw | ControlStyles.OptimizedDoubleBuffer |
                 ControlStyles.AllPaintingInWmPaint | ControlStyles.SupportsTransparentBackColor |
                 ControlStyles.UserPaint, true);
-            FlatStyle = FlatStyle.Flat;
             FlatAppearance.BorderSize = 0;
             UseVisualStyleBackColor = false;
             BackColor = Color.Transparent;

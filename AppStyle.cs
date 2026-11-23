@@ -197,9 +197,12 @@ namespace DriverUpdater
 
             public RoundedButton()
             {
-                SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw |
-                    ControlStyles.SupportsTransparentBackColor, true);
                 FlatStyle = FlatStyle.Flat;
+                // The rounded corners need the parent background painted before OnPaint.
+                SetStyle(ControlStyles.Opaque, false);
+                SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw |
+                    ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint |
+                    ControlStyles.SupportsTransparentBackColor, true);
                 UseVisualStyleBackColor = false;
                 BackColor = Color.Transparent;
                 Cursor = Cursors.Hand;
