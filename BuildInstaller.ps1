@@ -1,5 +1,5 @@
 param(
-    [string]$InputPath = (Join-Path $PSScriptRoot 'AtualizadorDeDrivers.exe'),
+    [string]$InputPath = (Join-Path $PSScriptRoot 'DriversLicense.exe'),
     [string]$OutputDirectory = $PSScriptRoot,
     [string]$CompilerPath
 )
@@ -35,7 +35,7 @@ $script = Join-Path $PSScriptRoot 'Installer.iss'
 if ($LASTEXITCODE -ne 0) {
     throw "O Inno Setup retornou o codigo $LASTEXITCODE."
 }
-$installer = Join-Path $output "Atualizador-de-Drivers-$version-Setup.exe"
+$installer = Join-Path $output "Drivers-License-$version-Setup.exe"
 if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
     throw 'O instalador compilado nao foi encontrado.'
 }

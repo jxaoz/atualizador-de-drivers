@@ -1,5 +1,5 @@
 param(
-    [string]$OutputPath = (Join-Path $PSScriptRoot 'AtualizadorDeDrivers.exe')
+    [string]$OutputPath = (Join-Path $PSScriptRoot 'DriversLicense.exe')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,10 +18,11 @@ $files = @('Program.cs', 'MainWindow.cs', 'InstallWindow.cs', 'AppStyle.cs', 'Da
 $resolvedOutput = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputPath)
 $manifest = Join-Path $PSScriptRoot 'app.manifest'
 $icon = Join-Path $PSScriptRoot 'app.ico'
+$brand = Join-Path $PSScriptRoot 'app-brand.png'
 
 & $compiler /nologo /target:winexe /platform:anycpu /optimize+ /codepage:65001 /warnaserror+ `
     '/reference:System.Windows.Forms.dll,System.Drawing.dll,System.Management.dll,Microsoft.CSharp.dll' `
-    "/win32manifest:$manifest" "/win32icon:$icon" "/out:$resolvedOutput" $files
+    "/win32manifest:$manifest" "/win32icon:$icon" "/resource:$brand,DriverUpdater.AppBrand.png" "/out:$resolvedOutput" $files
 if ($LASTEXITCODE -ne 0) {
     throw "A compilacao retornou o codigo $LASTEXITCODE."
 }

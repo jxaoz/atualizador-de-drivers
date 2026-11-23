@@ -1,6 +1,6 @@
-# Atualizador de Drivers
+# Drivers License
 
-Aplicativo portátil para Windows 10 e 11. O Atualizador lê os drivers do computador em que é executado e consulta o Windows Update para oferecer atualizações compatíveis, inclusive opcionais.
+Aplicativo para Windows 10 e 11, disponível com instalador ou em versão portátil. O Drivers License lê os drivers do computador em que roda e consulta o Windows Update para oferecer atualizações compatíveis, inclusive opcionais.
 
 [Baixar o instalador ou o ZIP portátil para Windows](https://github.com/jxaoz/atualizador-de-drivers/releases/latest)
 
@@ -8,7 +8,7 @@ Aplicativo portátil para Windows 10 e 11. O Atualizador lê os drivers do compu
 
 ## Como usar
 
-1. Execute o arquivo que termina em `-Setup.exe` ou extraia o ZIP portátil e abra `AtualizadorDeDrivers.exe`. O aplicativo usa o .NET Framework 4.8 ou superior.
+1. Execute o arquivo que termina em `-Setup.exe` ou extraia o ZIP portátil e abra `DriversLicense.exe`. O aplicativo usa o .NET Framework 4.8 ou superior.
 2. Clique no velocímetro **Buscar atualizações**. O ponteiro se move enquanto o Windows Update responde.
 3. Marque os pacotes desejados e clique em **Instalar selecionados**. O Windows solicita permissão de administrador. Ao final, confira o resultado de cada atualização e reinicie se o Windows solicitar.
 4. Em **Drivers instalados**, identifique as categorias pelos ícones. Clique com o botão direito em um driver e escolha **Propriedades**. Para ver o painel nativo do dispositivo, clique em **Abrir no Windows**.
@@ -24,6 +24,6 @@ O instalador e o aplicativo estão sem assinatura digital. O Windows pode exibir
 
 ## Compilar
 
-Execute `Build.ps1` com o Windows PowerShell em um computador com .NET Framework 4.8. O script gera `AtualizadorDeDrivers.exe` na mesma pasta. Use `-OutputPath` para escolher outro destino.
+Execute `Build.ps1` com o Windows PowerShell em um computador com .NET Framework 4.8. O script gera `DriversLicense.exe` na mesma pasta. Use `-OutputPath` para escolher outro destino.
 
 Para gerar o instalador, execute `BuildInstaller.ps1` após compilar o aplicativo. Use `-CompilerPath` para informar onde está o `ISCC.exe` do Inno Setup 6.6 ou superior, caso o script não o encontre. [Inno Setup](https://jrsoftware.org/inno-setup/downloads)

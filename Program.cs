@@ -10,12 +10,12 @@ using System.Security.Principal;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-[assembly: AssemblyTitle("Atualizador de drivers")]
+[assembly: AssemblyTitle(DriverUpdater.AppStyle.Name)]
 [assembly: AssemblyDescription("Consulta e instalação de atualizações de driver pelo Windows Update")]
-[assembly: AssemblyProduct("Atualizador de drivers")]
-[assembly: AssemblyVersion("1.2.0.0")]
-[assembly: AssemblyFileVersion("1.2.0.0")]
-[assembly: AssemblyInformationalVersion("1.2.0")]
+[assembly: AssemblyProduct(DriverUpdater.AppStyle.Name)]
+[assembly: AssemblyVersion("1.2.1.0")]
+[assembly: AssemblyFileVersion("1.2.1.0")]
+[assembly: AssemblyInformationalVersion("1.2.1")]
 
 namespace DriverUpdater
 {
@@ -45,7 +45,7 @@ namespace DriverUpdater
             if (!TryParseInstallation(args, selections, out useDarkTheme) || !IsAdministrator())
             {
                 MessageBox.Show("Abra o aplicativo e selecione as atualizações que deseja instalar.",
-                    "Atualizador de drivers", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    AppStyle.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return 2;
             }
 

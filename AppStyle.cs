@@ -8,7 +8,7 @@ namespace DriverUpdater
 {
     internal static class AppStyle
     {
-        public const string Name = "Atualizador de drivers";
+        public const string Name = "Drivers License";
         private const int CaptionColorAttribute = 35;
         private const int CaptionTextColorAttribute = 36;
         private const int DefaultCaptionColor = -1;

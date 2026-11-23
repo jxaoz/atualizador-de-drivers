@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
@@ -311,7 +312,16 @@ namespace DriverUpdater
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 157));
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
-            brandImage = Icon.ToBitmap();
+            using (Stream iconStream = typeof(MainWindow).Assembly.GetManifestResourceStream("DriverUpdater.AppBrand.png"))
+            {
+                if (iconStream != null)
+                {
+                    using (Image icon = Image.FromStream(iconStream))
+                        brandImage = new Bitmap(icon);
+                }
+                else
+                    brandImage = Icon.ToBitmap();
+            }
             var brand = new PictureBox
             {
                 Image = brandImage, Size = new Size(45, 45), SizeMode = PictureBoxSizeMode.Zoom,

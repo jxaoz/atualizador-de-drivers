@@ -319,7 +319,7 @@ namespace DriverUpdater
         private static object CreateSession()
         {
             dynamic session = CreateComObject("Microsoft.Update.Session");
-            session.ClientApplicationID = "Atualizador de drivers";
+            session.ClientApplicationID = AppStyle.Name;
             return session;
         }
 
