@@ -1,24 +1,24 @@
 # Drivers License
 
-Aplicativo para Windows 10 e 11, disponível com instalador ou em versão portátil. O Drivers License lê os drivers do computador em que roda e consulta o Windows Update para oferecer atualizações compatíveis, inclusive opcionais.
+Aplicativo para Windows 10 e 11, disponível com instalador ou em versão portátil. O Drivers License consulta o Windows Update e o catálogo da NVIDIA para listar atualizações compatíveis na mesma tela.
 
 [Baixar o instalador ou o ZIP portátil para Windows](https://github.com/jxaoz/atualizador-de-drivers/releases/latest)
 
-![Tela inicial com o botão de busca em forma de velocímetro](docs/velocimetro.png)
+![Exemplo ilustrativo das ofertas do Windows Update e da NVIDIA na mesma lista](docs/velocimetro.png)
 
 ## Como usar
 
 1. Execute o arquivo que termina em `-Setup.exe` ou extraia o ZIP portátil e abra `DriversLicense.exe`. O aplicativo usa o .NET Framework 4.8 ou superior.
-2. Clique no velocímetro **Buscar atualizações**. O ponteiro se move enquanto o Windows Update responde.
-3. Marque os pacotes desejados e clique em **Instalar selecionados**. O Windows solicita permissão de administrador. Ao final, confira o resultado de cada atualização e reinicie se o Windows solicitar.
+2. Clique no velocímetro **Buscar atualizações**. A coluna **Origem** identifica as ofertas do Windows Update, do catálogo oficial da NVIDIA e as recomendações verificadas do NVIDIA App.
+3. Marque os pacotes desejados e clique em **Instalar selecionados**. Para o NVIDIA GeForce Game Ready, o Drivers License pede o aceite da licença, baixa o driver e valida a assinatura digital da NVIDIA antes de abrir o instalador oficial. Conclua a instalação na janela da NVIDIA e busque novamente para conferir a versão.
 4. Em **Drivers instalados**, identifique as categorias pelos ícones. Clique com o botão direito em um driver e escolha **Propriedades**. Para ver o painel nativo do dispositivo, clique em **Abrir no Windows**.
-5. Em **Drivers de vídeo**, veja a versão instalada e busque atualizações de vídeo pelo Windows Update. Para placas NVIDIA, AMD e Intel, **Downloads oficiais** abre a página do fabricante.
+5. Em **Drivers de vídeo**, veja a versão instalada ou filtre a busca para vídeo. Para placas NVIDIA, AMD e Intel, **Downloads oficiais** abre a página do fabricante.
 
 Quando uma busca completa termina sem ofertas, a área de resultados exibe **Todos os drivers estão em dia!**. O interruptor **Modo noturno**, no topo, salva o tema escolhido para a próxima abertura.
 
 ![Exemplo ilustrativo de drivers com ícones de vídeo, áudio, rede, USB e outras categorias](docs/categorias.png)
 
-O inventário é lido localmente. Para busca e instalação, o Windows se comunica com a fonte de atualizações definida para aquele computador. As ofertas disponíveis variam conforme o hardware, a versão do Windows e as políticas locais.
+O inventário é lido localmente. As ofertas variam conforme o hardware, a versão do Windows e as políticas locais. A busca direta da NVIDIA cobre modelos GeForce compatíveis em Windows 10 ou 11 x64. Quando **AI Agents and App Connections** está habilitado no NVIDIA App, o Drivers License lê a recomendação Game Ready e verifica se o catálogo público oferece o pacote para o modelo detectado. A busca no catálogo também funciona com a integração desativada. [Catálogo de drivers da NVIDIA](https://www.nvidia.com/en-us/geforce/drivers/) · [Integração do NVIDIA App](https://www.nvidia.com/en-us/software/nvidia-app/release-highlights/)
 
 O instalador e o aplicativo estão sem assinatura digital. O Windows pode exibir um aviso ou bloquear a abertura de acordo com a configuração do computador. [Microsoft SmartScreen](https://learn.microsoft.com/windows/apps/package-and-deploy/smartscreen-reputation)
 

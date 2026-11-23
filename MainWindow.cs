@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -17,6 +18,7 @@ namespace DriverUpdater
         private const int OfferIconColumn = 1;
         private const int OfferNameColumn = 2;
         private const int OfferDeviceColumn = 3;
+        private const int OfferSourceColumn = 4;
         private const int WindowSizeMessage = 0x0005;
         private const int SizeMinimized = 1;
         private const uint InvalidateWindow = 0x0001;
@@ -29,6 +31,7 @@ namespace DriverUpdater
         private readonly ThemeToggle themeToggle = new ThemeToggle();
         private readonly SpeedometerButton scanButton = new SpeedometerButton { Dock = DockStyle.Fill, Margin = Padding.Empty };
         private readonly Button installButton = AppStyle.MakeButton("Instalar selecionados", true, 190);
+        private readonly Button cancelDownload = AppStyle.MakeButton("Cancelar download", false, 148);
         private readonly Button videoButton = AppStyle.MakeButton("Drivers de vídeo", false, 144);
         private readonly Button refreshButton = AppStyle.MakeButton("Atualizar lista", false, 124);
         private readonly Button inventoryProperties = AppStyle.MakeButton("Propriedades", false, 123);
@@ -49,6 +52,7 @@ namespace DriverUpdater
         private readonly TableLayoutPanel updatePage;
         private readonly Control inventoryPage;
         private Bitmap brandImage;
+        private CancellationTokenSource activeDownload;
         private List<InstalledDriver> inventory = new List<InstalledDriver>();
         private bool hasInventory;
         private bool readingInventory;
@@ -88,6 +92,7 @@ namespace DriverUpdater
             scanButton.Click += async delegate { await ScanAsync(false); };
             videoButton.Click += async delegate { await ShowVideoDriversAsync(); };
             installButton.Click += async delegate { await InstallAsync(); };
+            cancelDownload.Click += delegate { CancelNvidiaDownload(); };
             refreshButton.Click += async delegate { await RefreshInventoryAsync(); };
             inventoryProperties.Click += delegate { OpenProperties(inventoryGrid.CurrentRow); };
             filter.TextChanged += delegate { DisplayInventory(); };
@@ -106,7 +111,10 @@ namespace DriverUpdater
                 if (installing && args.CloseReason == CloseReason.UserClosing)
                 {
                     args.Cancel = true;
-                    SetUpdateStatus("Instalando drivers…", "Acompanhe a instalação na outra janela antes de fechar o aplicativo.");
+                    if (activeDownload != null)
+                        CancelNvidiaDownload();
+                    else
+                        SetUpdateStatus("Instalando drivers…", "Aguarde a preparação ou conclua a instalação na outra janela.");
                 }
             };
             SwitchPage(false);
@@ -151,11 +159,11 @@ namespace DriverUpdater
                 SortMode = DataGridViewColumnSortMode.NotSortable
             });
             AddCategoryColumn(updateGrid);
-            AppStyle.AddTextColumn(updateGrid, "Atualização", 54, 175);
-            AppStyle.AddTextColumn(updateGrid, "Dispositivo associado", 33, 132);
+            AppStyle.AddTextColumn(updateGrid, "Atualização", 54, 168);
+            AppStyle.AddTextColumn(updateGrid, "Dispositivo associado", 31, 121);
             updateGrid.Columns[OfferDeviceColumn].HeaderCell.ToolTipText = "Dispositivos com ID de hardware ou de compatibilidade correspondente.";
-            AppStyle.AddTextColumn(updateGrid, "Tipo", 12, 83);
-            AppStyle.AddTextColumn(updateGrid, "Data do driver", 13, 105);
+            AppStyle.AddTextColumn(updateGrid, "Origem", 16, 114);
+            AppStyle.AddTextColumn(updateGrid, "Data do driver", 13, 98);
             updateGrid.Columns[OfferNameColumn].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
             updateGrid.Columns[OfferDeviceColumn].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
             updateGrid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCellsExceptHeaders;
@@ -169,13 +177,15 @@ namespace DriverUpdater
 
             var actions = new TableLayoutPanel
             {
-                Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1,
+                Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1,
                 Margin = new Padding(0, 9, 0, 0), BackColor = Color.Transparent
             };
             actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 156));
             actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
             actions.Controls.Add(selectionStatus, 0, 0);
-            actions.Controls.Add(installButton, 1, 0);
+            actions.Controls.Add(cancelDownload, 1, 0);
+            actions.Controls.Add(installButton, 2, 0);
             panel.Controls.Add(actions, 0, 2);
             card.Controls.Add(panel);
             page.Controls.Add(card, 0, 1);
@@ -220,7 +230,7 @@ namespace DriverUpdater
             copy.RowStyles.Add(new RowStyle(SizeType.Absolute, 51));
             copy.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
             copy.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
-            var source = AppStyle.MakeLabel("Windows Update", AppStyle.HeaderText);
+            var source = AppStyle.MakeLabel("Windows Update e NVIDIA", AppStyle.HeaderText);
             source.BackColor = Color.Transparent;
             source.Font = new Font("Segoe UI Semibold", 10F);
             source.TextAlign = ContentAlignment.BottomLeft;
@@ -605,10 +615,7 @@ namespace DriverUpdater
             UpdateControls();
             try
             {
-                DriverScan result = await Task.Run(() => DriverServices.Scan());
-                if (videoOnly)
-                    result.Offers.RemoveAll(offer => !VideoDriversWindow.IsGraphicsClass(
-                        DriverCategoryIcons.ResolveOfferClass(offer.Class, offer.Title)));
+                DriverScan result = await DriverSearch.ScanAsync(Task.Run(() => DriverServices.ReadInventory()), videoOnly);
                 ShowOffers(result, videoOnly);
             }
             catch (Exception error)
@@ -631,12 +638,15 @@ namespace DriverUpdater
                 {
                     string driverClass = DriverCategoryIcons.ResolveOfferClass(offer.Class, offer.Title);
                     int index = updateGrid.Rows.Add(false, categoryIcons.GetIcon(driverClass, DeviceDpi), offer.Title,
-                        "—", OfferType(offer), DisplayDate(offer.Date));
+                        Display(offer.AssociatedDevice), DriverSearch.GetSource(offer), DisplayDate(offer.Date));
                     DataGridViewRow row = updateGrid.Rows[index];
                     row.Tag = offer;
                     SetCategoryDescription(row.Cells[OfferIconColumn], driverClass);
                     row.Cells[OfferNameColumn].ToolTipText = string.IsNullOrWhiteSpace(offer.Manufacturer) ? offer.Title :
                         offer.Title + "\r\nFornecedor do pacote: " + offer.Manufacturer;
+                    row.Cells[OfferSourceColumn].ToolTipText = offer.Nvidia != null ?
+                        (offer.FromNvidiaApp ? "Recomendação do NVIDIA App confirmada no catálogo da NVIDIA." : "Pacote do catálogo oficial da NVIDIA.") :
+                        "Windows Update · " + OfferType(offer);
                 }
                 RefreshDeviceMatches();
                 updateGrid.ClearSelection();
@@ -652,11 +662,11 @@ namespace DriverUpdater
             LayoutEmptyResult();
             allDriversCurrent.Visible = !videoOnly && !result.Partial && result.Offers.Count == 0;
             if (result.Partial)
-                SetUpdateStatus("Busca parcial", "O Windows Update retornou um resultado parcial. Tente buscar novamente.", result.Warnings);
+                SetUpdateStatus("Busca parcial", result.Warnings ?? "Uma das fontes retornou um resultado parcial. Tente buscar novamente.");
             else if (result.Offers.Count == 0)
                 SetUpdateStatus("Busca concluída", videoOnly
-                    ? "Nenhum driver de vídeo disponível no Windows Update. Veja os downloads oficiais em Drivers de vídeo."
-                    : "O Windows Update não encontrou atualizações de driver para este computador.");
+                    ? "As fontes consultadas não ofereceram atualizações de vídeo. Veja os downloads oficiais em Drivers de vídeo."
+                    : "As fontes consultadas não ofereceram atualizações de driver para este computador.");
             else
                 SetUpdateStatus("Busca concluída", "Marque as atualizações que você deseja instalar.");
             UpdateControls();
@@ -672,35 +682,56 @@ namespace DriverUpdater
             if (selected.Count == 0)
                 return;
 
-            string action = selected.Count == 1 ? "Instalar a atualização selecionada?" :
-                "Instalar as " + selected.Count + " atualizações selecionadas?";
-            string confirmation = action + "\r\n\r\nO Windows pode solicitar permissão de administrador e pedir que você reinicie o computador ao final.";
-            if (selected.Any(IsFirmware))
-                confirmation += "\r\n\r\nA seleção inclui firmware. Mantenha o computador ligado durante a atualização.";
-            if (MessageBox.Show(this, confirmation, AppStyle.Name, MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            List<DriverOffer> windows = selected.Where(offer => offer.Nvidia == null).ToList();
+            List<DriverOffer> direct = selected.Where(offer => offer.Nvidia != null).ToList();
+            if (direct.Count > 1)
+            {
+                SetUpdateStatus("Seleção de vídeo", "Marque um pacote da NVIDIA por vez. Você pode marcar outros tipos de driver juntos.");
+                return;
+            }
+            DriverOffer nvidia = direct.FirstOrDefault();
+            if (nvidia != null && windows.Any(offer => ConflictsWithNvidia(offer, nvidia)))
+            {
+                SetUpdateStatus("Seleção de vídeo", "Escolha uma fonte por vez para atualizar o mesmo adaptador de vídeo.");
+                return;
+            }
+
+            bool firmware = windows.Any(IsFirmware);
+            if (nvidia == null ? !ConfirmWindowsInstall(selected.Count, firmware) :
+                !NvidiaInstallConfirmation.Confirm(this, nvidia.Nvidia, selected.Count, firmware))
                 return;
 
             installing = true;
             bool useDarkTheme = AppStyle.IsDark;
-            SetUpdateStatus("Instalando drivers…", "Acompanhe o resultado na janela de instalação.");
+            bool windowsInstalledBeforeNvidia = false;
             UpdateControls();
             try
             {
-                int result = await Task.Run(() =>
+                if (windows.Count > 0)
                 {
-                    using (Process process = Program.StartInstaller(selected, useDarkTheme))
+                    SetUpdateStatus("Instalando drivers…", "Acompanhe os resultados do Windows Update na janela de instalação.");
+                    int result = await Task.Run(() => RunWindowsInstaller(windows, useDarkTheme));
+                    if (nvidia == null || result != InstallWindow.Success)
                     {
-                        if (process == null)
-                            throw new InvalidOperationException("O Windows não abriu a janela de instalação.");
-                        process.WaitForExit();
-                        return process.ExitCode;
+                        ClearOffers();
+                        string summary = InstallSummary(result);
+                        if (nvidia != null)
+                            summary += " O driver da NVIDIA continua pendente.";
+                        SetUpdateStatus("Resultado da instalação", summary);
+                        await RefreshInventoryAsync();
+                        return;
                     }
-                });
+                    windowsInstalledBeforeNvidia = true;
+                }
 
-                ClearOffers();
-                SetUpdateStatus("Resultado da instalação", InstallSummary(result));
-                await RefreshInventoryAsync();
+                await OpenNvidiaInstallerAsync(nvidia.Nvidia);
+                if (!windowsInstalledBeforeNvidia)
+                    ClearOffers();
+                SetUpdateStatus("Instalador da NVIDIA aberto", "Conclua a instalação na janela da NVIDIA. Depois, busque novamente para conferir a versão.");
+            }
+            catch (OperationCanceledException)
+            {
+                SetUpdateStatus("Download cancelado", "O download do pacote da NVIDIA foi interrompido.");
             }
             catch (Exception error)
             {
@@ -711,9 +742,94 @@ namespace DriverUpdater
             }
             finally
             {
+                if (windowsInstalledBeforeNvidia)
+                    ClearOffers();
                 installing = false;
                 UpdateControls();
             }
+            if (windowsInstalledBeforeNvidia)
+                await RefreshInventoryAsync();
+        }
+
+        private bool ConfirmWindowsInstall(int count, bool includesFirmware)
+        {
+            string action = count == 1 ? "Instalar a atualização selecionada?" :
+                "Instalar as " + count + " atualizações selecionadas?";
+            string message = action + "\r\n\r\nO Windows pode solicitar permissão de administrador e pedir que você reinicie o computador ao final.";
+            if (includesFirmware)
+                message += "\r\n\r\nA seleção inclui firmware. Mantenha o computador ligado durante a atualização.";
+            return MessageBox.Show(this, message, AppStyle.Name, MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
+        }
+
+        private static int RunWindowsInstaller(IList<DriverOffer> windows, bool useDarkTheme)
+        {
+            using (Process process = Program.StartInstaller(windows, useDarkTheme))
+            {
+                if (process == null)
+                    throw new InvalidOperationException("O Windows não abriu a janela de instalação.");
+                process.WaitForExit();
+                return process.ExitCode;
+            }
+        }
+
+        private async Task OpenNvidiaInstallerAsync(NvidiaDriverOffer offer)
+        {
+            SetUpdateStatus("Conferindo NVIDIA…", "Verificando o adaptador e a versão de driver instalada.");
+            var current = await Task.Run(() => DriverServices.ReadInventory());
+            if (!current.Any(adapter => NvidiaCatalog.IsStillApplicable(adapter, offer)))
+                throw new InvalidOperationException("Esta atualização da NVIDIA deixou de se aplicar ao computador. Faça uma nova busca.");
+
+            string path = null;
+            using (var cancellation = new CancellationTokenSource())
+            {
+                activeDownload = cancellation;
+                UpdateControls();
+                SetUpdateStatus("Baixando NVIDIA…", "Preparando o download do pacote oficial.");
+                IProgress<int> progress = new Progress<int>(percent =>
+                {
+                    if (activeDownload == cancellation && !cancellation.IsCancellationRequested)
+                    {
+                        string message = percent == 100 ? "Assinatura da NVIDIA verificada." :
+                            "Download do pacote oficial · " + percent + "%";
+                        SetUpdateStatus("Baixando NVIDIA…", message);
+                    }
+                });
+                try
+                {
+                    path = await NvidiaPackage.DownloadAsync(offer.DownloadUrl, progress, cancellation.Token);
+                    cancellation.Token.ThrowIfCancellationRequested();
+                    activeDownload = null;
+                    UpdateControls();
+                    SetUpdateStatus("Abrindo instalador…", "O Windows poderá pedir autorização de administrador.");
+                    await Task.Run(() => NvidiaPackage.Launch(path));
+                    path = null; // The download is now owned by the launched installer.
+                }
+                finally
+                {
+                    activeDownload = null;
+                    if (path != null)
+                        NvidiaPackage.Discard(path);
+                }
+            }
+        }
+
+        private void CancelNvidiaDownload()
+        {
+            if (activeDownload == null || activeDownload.IsCancellationRequested)
+                return;
+            activeDownload.Cancel();
+            cancelDownload.Enabled = false;
+            SetUpdateStatus("Cancelando download…", "O aplicativo está encerrando a transferência da NVIDIA.");
+        }
+
+        private static bool ConflictsWithNvidia(DriverOffer windows, DriverOffer nvidia)
+        {
+            if (!DriverSearch.IsVideoOffer(windows))
+                return false;
+            if (windows.HardwareIds == null || windows.HardwareIds.Length == 0 || nvidia.HardwareIds == null || nvidia.HardwareIds.Length == 0)
+                return true;
+            return windows.HardwareIds.Intersect(nvidia.HardwareIds, StringComparer.OrdinalIgnoreCase).Any();
         }
 
         private static string InstallSummary(int result)
@@ -762,6 +878,8 @@ namespace DriverUpdater
             UpdateInventoryProperties();
             int count = GetSelectedOffers().Count;
             installButton.Enabled = !busy && count > 0;
+            cancelDownload.Visible = activeDownload != null;
+            cancelDownload.Enabled = activeDownload != null && !activeDownload.IsCancellationRequested;
             selectionStatus.Text = updateGrid.Rows.Count == 0 ? string.Empty :
                 count == 1 ? "1 atualização selecionada" : count + " atualizações selecionadas";
         }
@@ -788,7 +906,7 @@ namespace DriverUpdater
             foreach (DataGridViewRow row in updateGrid.Rows)
             {
                 var offer = row.Tag as DriverOffer;
-                if (offer == null || offer.HardwareIds == null)
+                if (offer == null || offer.HardwareIds == null || offer.Nvidia != null)
                     continue;
 
                 var ids = new HashSet<string>(offer.HardwareIds, StringComparer.OrdinalIgnoreCase);

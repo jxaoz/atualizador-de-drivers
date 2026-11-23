@@ -22,6 +22,9 @@ namespace DriverUpdater
         public DateTime? Date;
         public string[] HardwareIds;
         public bool Optional;
+        public NvidiaDriverOffer Nvidia;
+        public bool FromNvidiaApp;
+        public string AssociatedDevice;
     }
 
     internal sealed class DriverScan

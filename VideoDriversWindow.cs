@@ -45,7 +45,7 @@ namespace DriverUpdater
             };
             Button close = AppStyle.MakeButton("Fechar", false, 89);
             close.DialogResult = DialogResult.Cancel;
-            Button search = AppStyle.MakeButton("&Buscar no Windows Update", true, 215);
+            Button search = AppStyle.MakeButton("&Buscar atualizações de vídeo", true, 215);
             search.DialogResult = DialogResult.Yes;
             search.Margin = new Padding(0, 0, 8, 0);
             downloads.Margin = new Padding(0, 0, 8, 0);
@@ -125,9 +125,9 @@ namespace DriverUpdater
             if (selectedPage != null)
                 selectionInfo.Text = "O atalho abre a página oficial de drivers da " + selectedPage.Name + " no navegador.";
             else if (driver != null)
-                selectionInfo.Text = "Para este adaptador, consulte o fabricante do computador ou o Windows Update.";
+                selectionInfo.Text = "Para este adaptador, consulte as atualizações ou fale com o fabricante do computador.";
             else
-                selectionInfo.Text = "Você ainda pode consultar o Windows Update.";
+                selectionInfo.Text = "Você ainda pode buscar atualizações pelas fontes disponíveis.";
         }
 
         private void OpenVendorPage()

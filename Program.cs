@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Net;
 using System.Reflection;
 using System.Security;
 using System.Security.Principal;
@@ -13,9 +14,9 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle(DriverUpdater.AppStyle.Name)]
 [assembly: AssemblyDescription("Consulta e instalação de atualizações de driver pelo Windows Update")]
 [assembly: AssemblyProduct(DriverUpdater.AppStyle.Name)]
-[assembly: AssemblyVersion("1.2.1.0")]
-[assembly: AssemblyFileVersion("1.2.1.0")]
-[assembly: AssemblyInformationalVersion("1.2.1")]
+[assembly: AssemblyVersion("1.3.0.0")]
+[assembly: AssemblyFileVersion("1.3.0.0")]
+[assembly: AssemblyInformationalVersion("1.3.0")]
 
 namespace DriverUpdater
 {
@@ -30,6 +31,7 @@ namespace DriverUpdater
         private static int Main(string[] args)
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("pt-BR");
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 

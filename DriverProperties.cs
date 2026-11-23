@@ -26,6 +26,21 @@ namespace DriverUpdater
 
         public static void Show(IWin32Window owner, DriverOffer offer, string associatedDevice)
         {
+            if (offer.Nvidia != null)
+            {
+                ShowDialog(owner, "Propriedades da atualização", offer.Title,
+                    new KeyValuePair<string, string>[]
+                    {
+                        Field("Dispositivo associado", associatedDevice),
+                        Field("Origem", DriverSearch.GetSource(offer)),
+                        Field("Fornecedor", "NVIDIA"),
+                        Field("Canal", "GeForce Game Ready"),
+                        Field("Versão instalada", offer.Nvidia.InstalledVersion),
+                        Field("Versão disponível", offer.Nvidia.Version),
+                        Field("Data do driver", DisplayDate(offer.Date))
+                    }, offer.HardwareIds, null);
+                return;
+            }
             ShowDialog(owner, "Propriedades da atualização", offer.Title,
                 new KeyValuePair<string, string>[]
                 {
