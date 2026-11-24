@@ -32,6 +32,7 @@ namespace DriverUpdater
         public string[] HardwareIds;
         public bool Optional;
         public NvidiaDriverOffer Nvidia;
+        public ManufacturerDriver ManufacturerPackage;
         public bool FromNvidiaApp;
         public string AssociatedDevice;
         public RestartBehavior Restart;
@@ -132,6 +133,8 @@ namespace DriverUpdater
 
         public static string DescribeRestart(DriverOffer offer)
         {
+            if (offer.ManufacturerPackage != null)
+                return "O instalador do fabricante informa se é necessário reiniciar.";
             if (offer.Nvidia != null)
                 return "O instalador da NVIDIA informa se é necessário reiniciar.";
             switch (offer.Restart)

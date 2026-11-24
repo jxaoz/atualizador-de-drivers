@@ -11,16 +11,16 @@ namespace DriverUpdater
         public static async Task<DriverScan> ScanAsync(Task<List<InstalledDriver>> inventory, bool videoOnly)
         {
             Task<DriverScan> windows = Task.Run(() => ScanWindows(videoOnly));
-            Task<DriverScan> nvidia = ScanNvidiaAsync(inventory);
-            await Task.WhenAll(windows, nvidia).ConfigureAwait(false);
+            Task<DriverScan> manufacturers = ScanManufacturersAsync(inventory, videoOnly);
+            await Task.WhenAll(windows, manufacturers).ConfigureAwait(false);
             DriverScan windowsResult = await windows.ConfigureAwait(false);
-            DriverScan nvidiaResult = await nvidia.ConfigureAwait(false);
+            DriverScan manufacturerResult = await manufacturers.ConfigureAwait(false);
 
-            windowsResult.Offers.AddRange(nvidiaResult.Offers);
+            windowsResult.Offers.AddRange(manufacturerResult.Offers);
             windowsResult.Offers.Sort((left, right) => StringComparer.CurrentCultureIgnoreCase.Compare(left.Title, right.Title));
-            windowsResult.Partial |= nvidiaResult.Partial;
-            windowsResult.MissingDrivers = nvidiaResult.MissingDrivers;
-            windowsResult.Warnings = JoinWarnings(windowsResult.Warnings, nvidiaResult.Warnings);
+            windowsResult.Partial |= manufacturerResult.Partial;
+            windowsResult.MissingDrivers = manufacturerResult.MissingDrivers;
+            windowsResult.Warnings = JoinWarnings(windowsResult.Warnings, manufacturerResult.Warnings);
             return windowsResult;
         }
 
@@ -31,6 +31,8 @@ namespace DriverUpdater
 
         public static string GetSource(DriverOffer offer)
         {
+            if (offer.ManufacturerPackage != null)
+                return offer.ManufacturerPackage.Source;
             if (offer.Nvidia == null)
                 return "Windows Update";
             return offer.FromNvidiaApp ? "NVIDIA App" : "NVIDIA";
@@ -51,16 +53,21 @@ namespace DriverUpdater
             }
         }
 
-        private static async Task<DriverScan> ScanNvidiaAsync(Task<List<InstalledDriver>> inventory)
+        private static async Task<DriverScan> ScanManufacturersAsync(Task<List<InstalledDriver>> inventory, bool videoOnly)
         {
             List<InstalledDriver> installed;
             try { installed = await inventory.ConfigureAwait(false); }
             catch (Exception error)
             {
-                return new DriverScan { Partial = true, Warnings = "Inventário para a consulta NVIDIA: " + DriverServices.DescribeError(error) };
+                return new DriverScan { Partial = true, Warnings = "Inventário para a consulta de fabricantes: " + DriverServices.DescribeError(error) };
             }
 
             var result = new DriverScan { MissingDrivers = installed.Count(adapter => adapter.MissingDriver) };
+            if (!videoOnly)
+            {
+                try { result.Offers.AddRange(ManufacturerPackages.FindForPc(installed, true)); }
+                catch (Exception error) { AddWarning(result, "Catálogo do fabricante: " + DriverServices.DescribeError(error)); }
+            }
             var adapters = installed.Where(NvidiaCatalog.IsSupportedAdapter).ToList();
             if (adapters.Count == 0)
                 return result;

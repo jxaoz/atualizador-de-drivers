@@ -62,13 +62,19 @@ namespace DriverUpdater
             }
         }
 
-        public static void RunInstaller(string packagePath)
+        public static void RunInstaller(string packagePath, params string[] publishers)
+        {
+            RunInstaller(packagePath, CancellationToken.None, publishers);
+        }
+
+        internal static void RunInstaller(string packagePath, CancellationToken cancellationToken, params string[] publishers)
         {
             string fullPath = Path.GetFullPath(packagePath);
             Process installer;
             using (FileStream package = File.Open(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                VerifyPublisher(package, fullPath);
+                VerifyPublisher(package, fullPath, publishers);
+                cancellationToken.ThrowIfCancellationRequested();
                 installer = Process.Start(new ProcessStartInfo
                 {
                     FileName = fullPath,
@@ -78,7 +84,7 @@ namespace DriverUpdater
             }
 
             if (installer == null)
-                throw new InvalidOperationException("O Windows não iniciou o instalador da NVIDIA.");
+                throw new InvalidOperationException("O Windows não iniciou o instalador do driver.");
 
             using (installer)
                 installer.WaitForExit();
@@ -113,8 +119,12 @@ namespace DriverUpdater
             return Path.Combine(Path.GetTempPath(), "DriversLicense", "NvidiaDownloads");
         }
 
-        private static async Task DownloadFileAsync(Uri uri, string path, IProgress<int> progress, CancellationToken cancellationToken)
+        internal static async Task DownloadFileAsync(Uri uri, string path, IProgress<int> progress, CancellationToken cancellationToken,
+            Func<Uri, bool> allowed = null, long maxBytes = 4L * 1024 * 1024 * 1024)
         {
+            allowed = allowed ?? IsDriverDownloadUri;
+            if (!allowed(uri))
+                throw new InvalidOperationException("O endereço do pacote não é uma fonte oficial aceita.");
             for (int attempt = 0; attempt < 5; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -133,15 +143,15 @@ namespace DriverUpdater
                             {
                                 Uri target;
                                 if (!Uri.TryCreate(uri, response.Headers[HttpResponseHeader.Location], out target) ||
-                                    !IsDriverDownloadUri(target) || !string.Equals(uri.AbsolutePath, target.AbsolutePath, StringComparison.OrdinalIgnoreCase))
+                                    !allowed(target) || !string.Equals(uri.AbsolutePath, target.AbsolutePath, StringComparison.OrdinalIgnoreCase))
                                     throw new InvalidOperationException("O download foi redirecionado para um endereço não autorizado.");
 
                                 uri = target;
                                 continue;
                             }
 
-                            if (response.StatusCode != HttpStatusCode.OK)
-                                throw new InvalidOperationException("O servidor não retornou o instalador completo da NVIDIA.");
+                            if (response.StatusCode != HttpStatusCode.OK || response.ContentLength > maxBytes)
+                                throw new InvalidOperationException("O servidor não retornou um pacote completo dentro do tamanho aceito.");
 
                             using (Stream input = response.GetResponseStream())
                             using (var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write,
@@ -150,7 +160,7 @@ namespace DriverUpdater
                                 if (input == null)
                                     throw new InvalidOperationException("O servidor retornou um download vazio.");
 
-                                await CopyResponseAsync(input, output, response.ContentLength, progress, idle)
+                                await CopyResponseAsync(input, output, response.ContentLength, progress, idle, maxBytes)
                                     .ConfigureAwait(false);
                             }
                             return;
@@ -160,7 +170,7 @@ namespace DriverUpdater
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         ReportInactivity(idle, error);
-                        throw new IOException("Não foi possível completar o download da NVIDIA.", error);
+                        throw new IOException("Não foi possível completar o download do pacote oficial.", error);
                     }
                     catch (IOException error)
                     {
@@ -177,17 +187,17 @@ namespace DriverUpdater
                 }
             }
 
-            throw new InvalidOperationException("O download da NVIDIA excedeu o limite de redirecionamentos.");
+            throw new InvalidOperationException("O download excedeu o limite de redirecionamentos.");
         }
 
         private static void ReportInactivity(CancellationTokenSource idle, Exception error)
         {
             if (idle.IsCancellationRequested)
-                throw new IOException("A conexão com a NVIDIA ficou sem resposta durante o download.", error);
+                throw new IOException("A conexão com o servidor ficou sem resposta durante o download.", error);
         }
 
         private static async Task CopyResponseAsync(Stream input, Stream output, long length,
-            IProgress<int> progress, CancellationTokenSource idle)
+            IProgress<int> progress, CancellationTokenSource idle, long maxBytes)
         {
             byte[] buffer = new byte[BufferSize];
             long received = 0;
@@ -199,8 +209,10 @@ namespace DriverUpdater
             while ((count = await input.ReadAsync(buffer, 0, buffer.Length, idle.Token).ConfigureAwait(false)) != 0)
             {
                 idle.CancelAfter(InactivityTimeoutMilliseconds);
-                await output.WriteAsync(buffer, 0, count, idle.Token).ConfigureAwait(false);
                 received += count;
+                if (received > maxBytes)
+                    throw new IOException("O pacote excedeu o tamanho máximo aceito.");
+                await output.WriteAsync(buffer, 0, count, idle.Token).ConfigureAwait(false);
                 int percentage = length > 0 ? (int)Math.Min(99, received * 100.0 / length) : 0;
                 if (progress != null && percentage != lastProgress)
                     progress.Report(percentage);
@@ -208,7 +220,7 @@ namespace DriverUpdater
             }
 
             if (received == 0 || (length >= 0 && received != length))
-                throw new IOException("O pacote da NVIDIA foi recebido incompleto.");
+                throw new IOException("O pacote foi recebido incompleto.");
         }
 
         private static void RemoveFailedDownload(string partialPath, string packagePath, string directory)
@@ -223,7 +235,7 @@ namespace DriverUpdater
             catch (UnauthorizedAccessException) { }
         }
 
-        private static void VerifyPublisher(FileStream package, string path)
+        internal static void VerifyPublisher(FileStream package, string path, params string[] publishers)
         {
             // Keep the verified bytes locked against writes until the caller has opened the installer.
             IntPtr nativePath = Marshal.StringToHGlobalUni(path);
@@ -255,8 +267,10 @@ namespace DriverUpdater
                         throw new InvalidOperationException("O Windows não validou a assinatura do instalador (0x" +
                             unchecked((uint)status).ToString("X8") + ").");
 
-                    if (!String.Equals(ReadVerifiedPublisher(trust.State), PublisherName, StringComparison.OrdinalIgnoreCase))
-                        throw new InvalidOperationException("A assinatura validada não pertence à NVIDIA Corporation.");
+                    string signer = ReadVerifiedPublisher(trust.State);
+                    string[] accepted = publishers.Length == 0 ? new[] { PublisherName } : publishers;
+                    if (!Array.Exists(accepted, name => String.Equals(signer, name, StringComparison.OrdinalIgnoreCase)))
+                        throw new InvalidOperationException("A assinatura validada não pertence ao fabricante esperado.");
                 }
                 finally
                 {
