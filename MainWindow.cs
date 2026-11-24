@@ -693,26 +693,30 @@ namespace DriverUpdater
             if (readingManufacturerCatalog || scanning || installing)
                 return;
             readingManufacturerCatalog = true;
+            manufacturerButton.Text = "Buscando pacotes…";
             UpdateControls();
-            List<DriverOffer> catalog;
+            DriverScan catalog;
             try
             {
-                catalog = await Task.Run(() => ManufacturerPackages.FindForPc(DriverServices.ReadInventory(), false));
+                catalog = await Task.Run(() => OfficialManufacturerCatalogs.FindForPcAsync(DriverServices.ReadInventory(), false));
             }
             catch (Exception)
             {
-                catalog = new List<DriverOffer>();
+                catalog = new DriverScan { Partial = true };
             }
             finally
             {
                 readingManufacturerCatalog = false;
                 if (!IsDisposed)
+                {
+                    manufacturerButton.Text = "Pacotes de fabricantes";
                     UpdateControls();
+                }
             }
             if (IsDisposed || scanning || installing)
                 return;
 
-            using (var picker = new ManufacturerPackageWindow(catalog))
+            using (var picker = new ManufacturerPackageWindow(catalog.Offers, catalog.Partial))
             {
                 if (picker.ShowDialog(this) != DialogResult.OK)
                     return;
@@ -772,7 +776,7 @@ namespace DriverUpdater
 
             bool firmware = windows.Any(IsFirmware);
             if (nvidia == null ? !ConfirmWindowsInstall(windows, firmware) :
-                !NvidiaInstallConfirmation.Confirm(this, nvidia.Nvidia, selected.Count, firmware))
+                !DriverLicenseConfirmation.Confirm(this, nvidia.Nvidia, selected.Count, firmware))
                 return;
 
             installing = true;
@@ -835,8 +839,10 @@ namespace DriverUpdater
             if (!string.IsNullOrWhiteSpace(offer.ManufacturerPackage.InstalledVersion))
                 confirmation += "\r\nVersão instalada: " + offer.ManufacturerPackage.InstalledVersion;
             confirmation += "\r\n\r\nConfirme no instalador oficial que o pacote é indicado para o seu modelo e sua versão do Windows.";
-            if (MessageBox.Show(this, confirmation, AppStyle.Name, MessageBoxButtons.YesNo, MessageBoxIcon.Question,
-                MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            bool confirmed = offer.ManufacturerPackage.Source == "AMD" ? DriverLicenseConfirmation.ConfirmAmd(this, offer) :
+                MessageBox.Show(this, confirmation, AppStyle.Name, MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+                    MessageBoxDefaultButton.Button2) == DialogResult.Yes;
+            if (!confirmed)
                 return;
 
             installing = true;

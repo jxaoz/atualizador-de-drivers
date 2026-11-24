@@ -14,8 +14,8 @@ if (-not (Test-Path -LiteralPath $compiler)) {
 $files = @('Program.cs', 'MainWindow.cs', 'InstallWindow.cs', 'AppStyle.cs', 'DashboardVisuals.cs',
     'SpeedometerButton.cs', 'DriverServices.cs', 'DriverProperties.cs', 'DriverCategoryIcons.cs',
     'ThemeToggle.cs', 'AllDriversCurrent.cs', 'VideoDriversWindow.cs', 'DriverSearch.cs', 'ManufacturerSupport.cs',
-    'NvidiaCatalog.cs', 'NvidiaAppClient.cs', 'NvidiaPackage.cs', 'NvidiaInstallConfirmation.cs',
-    'ManufacturerPackages.cs', 'ManufacturerPackageWindow.cs') |
+    'NvidiaCatalog.cs', 'NvidiaAppClient.cs', 'NvidiaPackage.cs', 'DriverLicenseConfirmation.cs',
+    'ManufacturerPackages.cs', 'ManufacturerPackageWindow.cs', 'OfficialManufacturerCatalogs.cs') |
     ForEach-Object { Join-Path $PSScriptRoot $_ }
 $resolvedOutput = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputPath)
 $manifest = Join-Path $PSScriptRoot 'app.manifest'
@@ -23,7 +23,7 @@ $icon = Join-Path $PSScriptRoot 'app.ico'
 $brand = Join-Path $PSScriptRoot 'app-brand.png'
 
 & $compiler /nologo /target:winexe /platform:anycpu /optimize+ /codepage:65001 /warnaserror+ `
-    '/reference:System.Windows.Forms.dll,System.Drawing.dll,System.Management.dll,Microsoft.CSharp.dll,System.Net.Http.dll,System.Web.Extensions.dll,System.IO.Compression.dll' `
+    '/reference:System.Windows.Forms.dll,System.Drawing.dll,System.Management.dll,Microsoft.CSharp.dll,System.Net.Http.dll,System.Web.Extensions.dll,System.IO.Compression.dll,System.Xml.Linq.dll' `
     "/win32manifest:$manifest" "/win32icon:$icon" "/resource:$brand,DriverUpdater.AppBrand.png" "/out:$resolvedOutput" $files
 if ($LASTEXITCODE -ne 0) {
     throw "A compilacao retornou o codigo $LASTEXITCODE."

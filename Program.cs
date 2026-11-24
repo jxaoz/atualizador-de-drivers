@@ -14,9 +14,9 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle(DriverUpdater.AppStyle.Name)]
 [assembly: AssemblyDescription("Consulta e instalação de drivers do Windows Update e de fabricantes")]
 [assembly: AssemblyProduct(DriverUpdater.AppStyle.Name)]
-[assembly: AssemblyVersion("1.5.0.0")]
-[assembly: AssemblyFileVersion("1.5.0.0")]
-[assembly: AssemblyInformationalVersion("1.5.0")]
+[assembly: AssemblyVersion("1.6.0.0")]
+[assembly: AssemblyFileVersion("1.6.0.0")]
+[assembly: AssemblyInformationalVersion("1.6.0")]
 
 namespace DriverUpdater
 {

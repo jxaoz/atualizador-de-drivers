@@ -13,7 +13,7 @@ namespace DriverUpdater
 
         public DriverOffer SelectedOffer { get; private set; }
 
-        public ManufacturerPackageWindow(IList<DriverOffer> catalog)
+        public ManufacturerPackageWindow(IList<DriverOffer> catalog, bool partial = false)
         {
             AppStyle.SetWindow(this, "Pacotes de fabricantes", new Size(620, 315), Size.Empty);
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -35,9 +35,16 @@ namespace DriverUpdater
             packages.AccessibleName = "Pacotes do catálogo";
             packages.BackColor = AppStyle.Surface;
             packages.ForeColor = AppStyle.Text;
-            packages.Items.Add(catalog.Count == 0 ? "Nenhum pacote de catálogo identificado" : "Selecione um pacote do catálogo");
+            packages.Items.Add(catalog.Count == 0 ? (partial ? "O catálogo não pôde ser concluído" :
+                "Nenhum pacote de catálogo identificado") : "Selecione um pacote do catálogo");
+            packages.MaxDropDownItems = 12;
+            packages.DropDownWidth = 740;
             foreach (DriverOffer offer in catalog)
-                packages.Items.Add(offer.Manufacturer + " · " + offer.Title);
+            {
+                string version = offer.ManufacturerPackage.Version;
+                packages.Items.Add(offer.Manufacturer + " · " + offer.Title +
+                    (string.IsNullOrWhiteSpace(version) || offer.Title.Contains(version) ? string.Empty : " · " + version));
+            }
             packages.SelectedIndex = 0;
             packages.Enabled = catalog.Count > 0;
             packages.SelectedIndexChanged += delegate

@@ -6,16 +6,28 @@ using System.Windows.Forms;
 
 namespace DriverUpdater
 {
-    internal static class NvidiaInstallConfirmation
+    internal static class DriverLicenseConfirmation
     {
         public static bool Confirm(IWin32Window owner, NvidiaDriverOffer offer, int totalUpdates, bool includesFirmware)
         {
-            Uri details = offer.DetailsUrl;
-            if (details == null || !details.IsAbsoluteUri || details.Scheme != Uri.UriSchemeHttps ||
-                !String.Equals(details.IdnHost, "www.nvidia.com", StringComparison.OrdinalIgnoreCase) ||
-                !details.IsDefaultPort || details.UserInfo.Length != 0)
+            return Confirm(owner, offer.Title + " " + offer.Version, offer.DetailsUrl,
+                "NVIDIA", "www.nvidia.com", totalUpdates, includesFirmware);
+        }
+
+        public static bool ConfirmAmd(IWin32Window owner, DriverOffer offer)
+        {
+            string path = offer.ManufacturerPackage.DownloadHash == null ? "/en/legal/eula.html" : "/en/legal/eula/chipset-eula.html";
+            string version = offer.ManufacturerPackage.Version;
+            string title = string.IsNullOrWhiteSpace(version) ? offer.Title : offer.Title + " " + version;
+            return Confirm(owner, title, new Uri("https://www.amd.com" + path), "AMD", "www.amd.com", 1, false);
+        }
+
+        private static bool Confirm(IWin32Window owner, string title, Uri details, string vendor, string officialHost, int totalUpdates,
+            bool includesFirmware)
+        {
+            if (!ManufacturerPackages.IsHttps(details) || !String.Equals(details.IdnHost, officialHost, StringComparison.OrdinalIgnoreCase))
             {
-                MessageBox.Show(owner, "A página oficial com a licença deste driver da NVIDIA está indisponível.",
+                MessageBox.Show(owner, "A página oficial com a licença deste driver está indisponível.",
                     AppStyle.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return false;
             }
@@ -47,13 +59,13 @@ namespace DriverUpdater
                 content.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
 
                 Label package = AppStyle.MakeLabel(
-                    offer.Title + " " + offer.Version + " será baixado da NVIDIA. A instalação continua na janela do instalador oficial.",
+                    title + " será baixado da " + vendor + ". A instalação continua na janela do instalador oficial.",
                     AppStyle.Text);
                 package.AutoEllipsis = false;
                 content.Controls.Add(package, 0, 0);
                 var terms = new LinkLabel
                 {
-                    Text = "Ler detalhes e licença da NVIDIA",
+                    Text = "Ler detalhes e licença da " + vendor,
                     LinkColor = AppStyle.Accent,
                     Dock = DockStyle.Fill,
                     Margin = Padding.Empty,
@@ -63,7 +75,7 @@ namespace DriverUpdater
                 content.Controls.Add(terms, 0, 1);
 
                 Label consent = AppStyle.MakeLabel(
-                    "Ao clicar em Aceitar e continuar, você aceita a licença da NVIDIA para baixar o driver.",
+                    "Ao clicar em Aceitar e continuar, você aceita a licença da " + vendor + " para baixar o driver.",
                     AppStyle.Text);
                 consent.AutoEllipsis = false;
                 content.Controls.Add(consent, 0, 2);
@@ -125,7 +137,7 @@ namespace DriverUpdater
 
         private static void ShowBrowserError(IWin32Window owner)
         {
-            MessageBox.Show(owner, "O Windows não conseguiu abrir a página da NVIDIA no navegador.",
+            MessageBox.Show(owner, "O Windows não conseguiu abrir a página do fabricante no navegador.",
                 AppStyle.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }

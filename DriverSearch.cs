@@ -63,11 +63,14 @@ namespace DriverUpdater
             }
 
             var result = new DriverScan { MissingDrivers = installed.Count(adapter => adapter.MissingDriver) };
-            if (!videoOnly)
+            try
             {
-                try { result.Offers.AddRange(ManufacturerPackages.FindForPc(installed, true)); }
-                catch (Exception error) { AddWarning(result, "Catálogo do fabricante: " + DriverServices.DescribeError(error)); }
+                DriverScan catalog = await OfficialManufacturerCatalogs.FindForPcAsync(installed, true).ConfigureAwait(false);
+                result.Offers.AddRange(videoOnly ? catalog.Offers.Where(IsVideoOffer) : catalog.Offers);
+                if (catalog.Partial)
+                    AddWarning(result, catalog.Warnings);
             }
+            catch (Exception error) { AddWarning(result, "Catálogo do fabricante: " + DriverServices.DescribeError(error)); }
             var adapters = installed.Where(NvidiaCatalog.IsSupportedAdapter).ToList();
             if (adapters.Count == 0)
                 return result;

@@ -15,7 +15,7 @@ namespace DriverUpdater
 {
     internal sealed class ManufacturerDriver
     {
-        public string Source, Version, InstalledVersion, ArchiveHash, ArchiveEntry;
+        public string Source, Version, DriverVersion, InstalledVersion, ArchiveHash, ArchiveEntry, DownloadHash;
         public Uri DownloadUrl;
         public string[] Publishers;
     }
@@ -80,22 +80,27 @@ namespace DriverUpdater
             });
         }
 
-        private static InstalledDriver FindDevice(IEnumerable<InstalledDriver> inventory, string hardware)
+        internal static bool MatchesDevice(InstalledDriver device, string hardware)
         {
-            return inventory.FirstOrDefault(device =>
-                (device.DeviceInstanceId ?? string.Empty).StartsWith(hardware + "&", StringComparison.OrdinalIgnoreCase) ||
+            return !string.IsNullOrWhiteSpace(hardware) &&
+                ((device.DeviceInstanceId ?? string.Empty).StartsWith(hardware + "&", StringComparison.OrdinalIgnoreCase) ||
                 (device.DeviceInstanceId ?? string.Empty).StartsWith(hardware + "\\", StringComparison.OrdinalIgnoreCase) ||
                 (device.HardwareIds ?? new string[0]).Contains(hardware, StringComparer.OrdinalIgnoreCase));
         }
 
-        private static bool IsNewer(string version, string installed, bool compareWithinMajor)
+        private static InstalledDriver FindDevice(IEnumerable<InstalledDriver> inventory, string hardware)
+        {
+            return inventory.FirstOrDefault(device => MatchesDevice(device, hardware));
+        }
+
+        internal static bool IsNewer(string version, string installed, bool compareWithinMajor)
         {
             Version candidate, existing;
             return Version.TryParse(version, out candidate) && Version.TryParse(installed, out existing) &&
                 (!compareWithinMajor || candidate.Major == existing.Major) && candidate > existing;
         }
 
-        private static string ReadAmdChipsetVersion()
+        internal static string ReadAmdChipsetVersion()
         {
             Version latest = null;
             foreach (RegistryView view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
@@ -153,7 +158,7 @@ namespace DriverUpdater
                 case "downloadmirror.intel.com":
                     vendor = "Intel"; publishers = new[] { "Intel Corporation" }; break;
                 case "drivers.amd.com":
-                    vendor = "AMD"; publishers = new[] { "Advanced Micro Devices, Inc." }; break;
+                    vendor = "AMD"; publishers = new[] { "Advanced Micro Devices", "Advanced Micro Devices, Inc." }; break;
                 case GigabyteCdn:
                     vendor = "GIGABYTE"; publishers = new[] { GigabyteSigner }; break;
                 default: return null;
@@ -178,9 +183,12 @@ namespace DriverUpdater
             try
             {
                 string download = offer.ArchiveHash == null ? installer : archive;
+                string referer = offer.Source == "AMD" ? "https://www.amd.com/" : null;
                 await NvidiaPackage.DownloadFileAsync(offer.DownloadUrl, download, progress, cancellationToken,
-                    target => IsHttps(target) && target.IdnHost == offer.DownloadUrl.IdnHost).ConfigureAwait(false);
+                    target => IsHttps(target) && target.IdnHost == offer.DownloadUrl.IdnHost, referer: referer).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
+                if (offer.DownloadHash != null)
+                    VerifyHash(download, offer.DownloadHash);
                 if (offer.ArchiveHash != null)
                     ExtractVerified(archive, installer, offer);
 
@@ -196,20 +204,33 @@ namespace DriverUpdater
             }
         }
 
-        private static bool IsHttps(Uri uri)
+        internal static bool IsHttps(Uri uri)
         {
             return uri != null && uri.IsAbsoluteUri && uri.Scheme == Uri.UriSchemeHttps && uri.IsDefaultPort &&
                 uri.UserInfo.Length == 0 && uri.Fragment.Length == 0;
         }
 
+        internal static void VerifyHash(string path, string expected)
+        {
+            using (var stream = File.OpenRead(path))
+                VerifyHash(stream, expected);
+        }
+
+        private static void VerifyHash(Stream stream, string expected)
+        {
+            using (var sha = SHA256.Create())
+            {
+                string digest = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", string.Empty);
+                if (!string.Equals(digest, expected, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("O arquivo não corresponde ao SHA-256 informado pelo catálogo.");
+            }
+        }
+
         private static void ExtractVerified(string archive, string installer, ManufacturerDriver offer)
         {
             using (FileStream input = File.OpenRead(archive))
-            using (var sha = SHA256.Create())
             {
-                string digest = BitConverter.ToString(sha.ComputeHash(input)).Replace("-", string.Empty);
-                if (!string.Equals(digest, offer.ArchiveHash, StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidDataException("O pacote do fabricante mudou desde a verificação do catálogo.");
+                VerifyHash(input, offer.ArchiveHash);
                 input.Position = 0;
                 using (var zip = new ZipArchive(input, ZipArchiveMode.Read))
                 {

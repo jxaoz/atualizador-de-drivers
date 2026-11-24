@@ -120,7 +120,7 @@ namespace DriverUpdater
         }
 
         internal static async Task DownloadFileAsync(Uri uri, string path, IProgress<int> progress, CancellationToken cancellationToken,
-            Func<Uri, bool> allowed = null, long maxBytes = 4L * 1024 * 1024 * 1024)
+            Func<Uri, bool> allowed = null, long maxBytes = 4L * 1024 * 1024 * 1024, string referer = null)
         {
             allowed = allowed ?? IsDriverDownloadUri;
             if (!allowed(uri))
@@ -130,6 +130,8 @@ namespace DriverUpdater
                 cancellationToken.ThrowIfCancellationRequested();
                 HttpWebRequest request = WebRequest.CreateHttp(uri);
                 request.AllowAutoRedirect = false;
+                if (referer != null)
+                    request.Referer = referer;
                 using (var idle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                 using (idle.Token.Register(request.Abort))
                 {
