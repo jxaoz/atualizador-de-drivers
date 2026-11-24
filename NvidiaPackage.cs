@@ -62,7 +62,7 @@ namespace DriverUpdater
             }
         }
 
-        public static void Launch(string packagePath)
+        public static void RunInstaller(string packagePath)
         {
             string fullPath = Path.GetFullPath(packagePath);
             Process installer;
@@ -80,17 +80,8 @@ namespace DriverUpdater
             if (installer == null)
                 throw new InvalidOperationException("O Windows não iniciou o instalador da NVIDIA.");
 
-            try
-            {
-                installer.Exited += delegate
-                {
-                    Discard(fullPath);
-                    installer.Dispose();
-                };
-                installer.EnableRaisingEvents = true;
-            }
-            catch (InvalidOperationException) { installer.Dispose(); }
-            catch (Win32Exception) { installer.Dispose(); }
+            using (installer)
+                installer.WaitForExit();
         }
 
         public static void Discard(string packagePath)

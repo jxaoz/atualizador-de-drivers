@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace DriverUpdater
@@ -15,13 +18,13 @@ namespace DriverUpdater
                 new KeyValuePair<string, string>[]
                 {
                     Field("Fornecedor", driver.Manufacturer),
-                    Field("Versão instalada", driver.Version),
+                    Field("Versão do driver", driver.VersionDisplay),
                     Field("Data do driver", DisplayDate(driver.Date)),
                     Field("Categoria", DisplayCategory(driver.Class)),
                     Field("Arquivo INF", driver.InfName),
                     Field("Assinatura", DisplaySignature(driver)),
                     Field("ID da instância", driver.DeviceInstanceId)
-                }, driver.HardwareIds, driver.DeviceInstanceId);
+                }, driver.HardwareIds, driver.DeviceInstanceId, driver.Manufacturer ?? string.Empty);
         }
 
         public static void Show(IWin32Window owner, DriverOffer offer, string associatedDevice)
@@ -37,7 +40,8 @@ namespace DriverUpdater
                         Field("Canal", "GeForce Game Ready"),
                         Field("Versão instalada", offer.Nvidia.InstalledVersion),
                         Field("Versão disponível", offer.Nvidia.Version),
-                        Field("Data do driver", DisplayDate(offer.Date))
+                        Field("Data do driver", DisplayDate(offer.Date)),
+                        Field("Reinicialização", DriverServices.DescribeRestart(offer))
                     }, offer.HardwareIds, null);
                 return;
             }
@@ -50,16 +54,17 @@ namespace DriverUpdater
                     Field("Data do driver", DisplayDate(offer.Date)),
                     Field("Tipo de oferta", offer.Optional ? "Opcional" : "Driver"),
                     Field("ID da atualização", offer.Id),
-                    Field("Revisão da oferta", offer.Revision.ToString(CultureInfo.CurrentCulture))
+                    Field("Revisão da oferta", offer.Revision.ToString(CultureInfo.CurrentCulture)),
+                    Field("Reinicialização", DriverServices.DescribeRestart(offer))
                 }, offer.HardwareIds, null);
         }
 
         private static void ShowDialog(IWin32Window owner, string title, string name,
-            IList<KeyValuePair<string, string>> fields, string[] hardwareIds, string deviceInstanceId)
+            IList<KeyValuePair<string, string>> fields, string[] hardwareIds, string deviceInstanceId, string manufacturer = null)
         {
             using (var dialog = new Form())
             {
-                AppStyle.SetWindow(dialog, title, new Size(710, 565), new Size(560, 510));
+                AppStyle.SetWindow(dialog, title, new Size(710, 590), new Size(560, 550));
                 dialog.StartPosition = FormStartPosition.CenterParent;
                 dialog.ShowInTaskbar = false;
                 dialog.MinimizeBox = false;
@@ -120,6 +125,34 @@ namespace DriverUpdater
                     openWindows.Margin = new Padding(0, 0, 10, 0);
                     openWindows.Click += delegate { OpenInWindows(dialog, deviceInstanceId); };
                     actions.Controls.Add(openWindows);
+                }
+                if (manufacturer != null)
+                {
+                    var support = AppStyle.MakeButton("Suporte do fabricante", false, 175);
+                    support.Margin = new Padding(0, 0, 10, 0);
+                    support.Click += async delegate
+                    {
+                        support.Enabled = false;
+                        Uri page = await Task.Run(() => ManufacturerSupport.Find(manufacturer));
+                        if (dialog.IsDisposed)
+                            return;
+                        support.Enabled = true;
+                        if (page == null)
+                        {
+                            MessageBox.Show(dialog, "Use o nome do dispositivo ou o ID de hardware acima para localizar o suporte oficial.",
+                                "Suporte do fabricante", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            return;
+                        }
+                        try
+                        {
+                            using (Process browser = Process.Start(new ProcessStartInfo(page.AbsoluteUri) { UseShellExecute = true })) { }
+                        }
+                        catch (Win32Exception)
+                        {
+                            MessageBox.Show(dialog, page.AbsoluteUri, "Endereço do suporte oficial", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }
+                    };
+                    actions.Controls.Add(support);
                 }
                 content.Controls.Add(actions, 0, fields.Count + 2);
                 content.SetColumnSpan(actions, 2);

@@ -19,6 +19,7 @@ namespace DriverUpdater
             windowsResult.Offers.AddRange(nvidiaResult.Offers);
             windowsResult.Offers.Sort((left, right) => StringComparer.CurrentCultureIgnoreCase.Compare(left.Title, right.Title));
             windowsResult.Partial |= nvidiaResult.Partial;
+            windowsResult.MissingDrivers = nvidiaResult.MissingDrivers;
             windowsResult.Warnings = JoinWarnings(windowsResult.Warnings, nvidiaResult.Warnings);
             return windowsResult;
         }
@@ -59,7 +60,7 @@ namespace DriverUpdater
                 return new DriverScan { Partial = true, Warnings = "Inventário para a consulta NVIDIA: " + DriverServices.DescribeError(error) };
             }
 
-            var result = new DriverScan();
+            var result = new DriverScan { MissingDrivers = installed.Count(adapter => adapter.MissingDriver) };
             var adapters = installed.Where(NvidiaCatalog.IsSupportedAdapter).ToList();
             if (adapters.Count == 0)
                 return result;

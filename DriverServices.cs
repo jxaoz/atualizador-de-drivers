@@ -13,7 +13,16 @@ namespace DriverUpdater
         public DateTime? Date;
         public string[] HardwareIds;
         public bool? Signed;
+        public uint? ProblemCode;
+
+        public bool MissingDriver { get { return ProblemCode == 28; } }
+        public string VersionDisplay
+        {
+            get { return MissingDriver ? "Sem driver" : string.IsNullOrWhiteSpace(Version) ? "Não informada" : Version; }
+        }
     }
+
+    internal enum RestartBehavior { Unknown, NotExpected, Required, Possible }
 
     internal sealed class DriverOffer
     {
@@ -25,6 +34,7 @@ namespace DriverUpdater
         public NvidiaDriverOffer Nvidia;
         public bool FromNvidiaApp;
         public string AssociatedDevice;
+        public RestartBehavior Restart;
     }
 
     internal sealed class DriverScan
@@ -32,6 +42,7 @@ namespace DriverUpdater
         public List<DriverOffer> Offers = new List<DriverOffer>();
         public bool Partial;
         public string Warnings;
+        public int MissingDrivers;
     }
 
     internal sealed class DriverResult
@@ -50,17 +61,12 @@ namespace DriverUpdater
         private const int Aborted = 5;
         private const int OptionalInstallation = 4;
 
-        private sealed class PresentDevice
-        {
-            public string Name;
-            public HashSet<string> HardwareIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        }
-
         public static List<InstalledDriver> ReadInventory()
         {
-            var present = new Dictionary<string, PresentDevice>(StringComparer.OrdinalIgnoreCase);
+            var present = new Dictionary<string, InstalledDriver>(StringComparer.OrdinalIgnoreCase);
             using (var query = new ManagementObjectSearcher(
-                "SELECT PNPDeviceID, Name, HardwareID, CompatibleID FROM Win32_PnPEntity WHERE Present=TRUE"))
+                "SELECT PNPDeviceID, Name, Manufacturer, PNPClass, ConfigManagerErrorCode, HardwareID, CompatibleID " +
+                "FROM Win32_PnPEntity WHERE Present=TRUE"))
             using (var devices = query.Get())
             {
                 foreach (ManagementObject device in devices)
@@ -71,15 +77,22 @@ namespace DriverUpdater
                         if (id.Length == 0)
                             continue;
 
-                        var entry = new PresentDevice { Name = ReadText(device["Name"]) };
-                        AddHardwareIds(entry.HardwareIds, device["HardwareID"]);
-                        AddHardwareIds(entry.HardwareIds, device["CompatibleID"]);
-                        present[id] = entry;
+                        var hardwareIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        AddHardwareIds(hardwareIds, device["HardwareID"]);
+                        AddHardwareIds(hardwareIds, device["CompatibleID"]);
+                        present[id] = new InstalledDriver
+                        {
+                            DeviceInstanceId = id,
+                            Device = ReadText(device["Name"]),
+                            Manufacturer = ReadText(device["Manufacturer"]),
+                            Class = ReadText(device["PNPClass"]),
+                            ProblemCode = device["ConfigManagerErrorCode"] as uint?,
+                            HardwareIds = CopyHardwareIds(hardwareIds)
+                        };
                     }
                 }
             }
 
-            var drivers = new List<InstalledDriver>();
             using (var query = new ManagementObjectSearcher(
                 "SELECT DeviceID, DeviceName, FriendlyName, Manufacturer, DriverProviderName, DriverVersion, DriverDate, " +
                 "HardwareID, CompatID, InfName, DeviceClass, IsSigned, Signer FROM Win32_PnPSignedDriver"))
@@ -90,32 +103,66 @@ namespace DriverUpdater
                     using (package)
                     {
                         var id = ReadText(package["DeviceID"]);
-                        PresentDevice device;
+                        InstalledDriver device;
                         if (!present.TryGetValue(id, out device))
                             continue;
 
                         var hardwareIds = new HashSet<string>(device.HardwareIds, StringComparer.OrdinalIgnoreCase);
                         AddHardwareIds(hardwareIds, package["HardwareID"]);
                         AddHardwareIds(hardwareIds, package["CompatID"]);
-                        drivers.Add(new InstalledDriver
-                        {
-                            Device = FirstText(device.Name, package["FriendlyName"], package["DeviceName"], id),
-                            Manufacturer = FirstText(package["DriverProviderName"], package["Manufacturer"]),
-                            Version = ReadText(package["DriverVersion"]),
-                            Date = ParseDriverDate(ReadText(package["DriverDate"])),
-                            HardwareIds = CopyHardwareIds(hardwareIds),
-                            DeviceInstanceId = id,
-                            InfName = ReadText(package["InfName"]),
-                            Class = ReadText(package["DeviceClass"]),
-                            Signed = package["IsSigned"] as bool?,
-                            Signer = ReadText(package["Signer"])
-                        });
+                        device.Device = FirstText(device.Device, package["FriendlyName"], package["DeviceName"], id);
+                        device.Manufacturer = FirstText(package["DriverProviderName"], package["Manufacturer"], device.Manufacturer);
+                        device.Version = ReadText(package["DriverVersion"]);
+                        device.Date = ParseDriverDate(ReadText(package["DriverDate"]));
+                        device.HardwareIds = CopyHardwareIds(hardwareIds);
+                        device.InfName = ReadText(package["InfName"]);
+                        device.Class = FirstText(package["DeviceClass"], device.Class);
+                        device.Signed = package["IsSigned"] as bool?;
+                        device.Signer = ReadText(package["Signer"]);
                     }
                 }
             }
 
+            var drivers = new List<InstalledDriver>(present.Values);
+            foreach (InstalledDriver driver in drivers)
+                driver.Device = FirstText(driver.Device, driver.DeviceInstanceId);
             drivers.Sort((left, right) => StringComparer.CurrentCultureIgnoreCase.Compare(left.Device, right.Device));
             return drivers;
+        }
+
+        public static string DescribeRestart(DriverOffer offer)
+        {
+            if (offer.Nvidia != null)
+                return "O instalador da NVIDIA informa se é necessário reiniciar.";
+            switch (offer.Restart)
+            {
+                case RestartBehavior.NotExpected: return "O pacote dispensa reinício.";
+                case RestartBehavior.Required: return "Reinício necessário após instalar.";
+                case RestartBehavior.Possible: return "Pode ser necessário após instalar.";
+                default: return "O catálogo não informou a previsão.";
+            }
+        }
+
+        private static RestartBehavior ReadRestartBehavior(object code)
+        {
+            if (Equals(code, 0)) return RestartBehavior.NotExpected;
+            if (Equals(code, 1)) return RestartBehavior.Required;
+            if (Equals(code, 2)) return RestartBehavior.Possible;
+            return RestartBehavior.Unknown;
+        }
+
+        public static bool? IsRestartPending()
+        {
+            try
+            {
+                return ReadDriverProperty(() =>
+                {
+                    dynamic info = CreateComObject("Microsoft.Update.SystemInfo");
+                    return (object)info.RebootRequired;
+                }) as bool?;
+            }
+            catch (InvalidOperationException) { return null; }
+            catch (UnauthorizedAccessException) { return null; }
         }
 
         public static DriverScan Scan()
@@ -150,6 +197,7 @@ namespace DriverUpdater
                     Manufacturer = ReadText(ReadDriverProperty(() => update.DriverManufacturer)),
                     Class = ReadText(ReadDriverProperty(() => update.DriverClass)),
                     Date = ReadOfferDate(ReadDriverProperty(() => update.DriverVerDate)),
+                    Restart = ReadRestartBehavior(ReadDriverProperty(() => update.InstallationBehavior.RebootBehavior)),
                     HardwareIds = ReadOfferHardwareIds(update),
                     Optional = Equals(ReadDriverProperty(() => update.BrowseOnly), true) ||
                         Equals(ReadDriverProperty(() => update.DeploymentAction), OptionalInstallation)
@@ -297,7 +345,7 @@ namespace DriverUpdater
             result.Installed = itemCode == Succeeded && error >= 0;
             if (result.Installed)
             {
-                result.Detail = result.RebootRequired ? "Instalado. Reinicie para concluir." : "Instalado.";
+                result.Detail = result.RebootRequired ? "Instalado. Reinicie para concluir." : "Instalado. Sem reinicialização indicada.";
                 return;
             }
             result.Detail = ResultMessage("A instalação", itemCode == Succeeded ? installationCode : itemCode, error);

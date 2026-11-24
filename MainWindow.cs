@@ -27,7 +27,7 @@ namespace DriverUpdater
 
         private readonly Panel pageHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = Padding.Empty };
         private readonly Button updateTab = AppStyle.MakeButton("&Atualizações", true, 144);
-        private readonly Button inventoryTab = AppStyle.MakeButton("&Drivers instalados", false, 168);
+        private readonly Button inventoryTab = AppStyle.MakeButton("&Dispositivos", false, 168);
         private readonly ThemeToggle themeToggle = new ThemeToggle();
         private readonly SpeedometerButton scanButton = new SpeedometerButton { Dock = DockStyle.Fill, Margin = Padding.Empty };
         private readonly Button installButton = AppStyle.MakeButton("Instalar selecionados", true, 190);
@@ -38,13 +38,13 @@ namespace DriverUpdater
         private readonly Label scanTitle = HeroTitle("Pronto para buscar", 29);
         private readonly Label updateStatus = AppStyle.MakeLabel("Inicie a busca para ver quais drivers têm atualizações disponíveis para este computador.", AppStyle.HeaderText);
         private readonly Label resultsTitle = SectionTitle("Resultados da busca");
-        private readonly Label inventoryTitle = HeroTitle("Drivers instalados", 27);
-        private readonly Label inventoryStatus = AppStyle.MakeLabel("Carregando drivers instalados…", AppStyle.Muted);
+        private readonly Label inventoryTitle = HeroTitle("Dispositivos detectados", 27);
+        private readonly Label inventoryStatus = AppStyle.MakeLabel("Carregando dispositivos…", AppStyle.Muted);
         private readonly Label selectionStatus = AppStyle.MakeLabel(string.Empty, AppStyle.Text);
         private readonly DataGridView updateGrid = AppStyle.MakeGrid("Atualizações disponíveis");
         private readonly AllDriversCurrent allDriversCurrent = new AllDriversCurrent { Visible = false };
-        private readonly DataGridView inventoryGrid = AppStyle.MakeGrid("Drivers instalados");
-        private readonly TextBox filter = new TextBox { AccessibleName = "Filtrar drivers instalados", Dock = DockStyle.Fill, Margin = Padding.Empty };
+        private readonly DataGridView inventoryGrid = AppStyle.MakeGrid("Dispositivos detectados");
+        private readonly TextBox filter = new TextBox { AccessibleName = "Filtrar dispositivos", Dock = DockStyle.Fill, Margin = Padding.Empty };
         private readonly ToolTip toolTip = new ToolTip();
         private readonly ContextMenuStrip updateMenu = new ContextMenuStrip();
         private readonly ContextMenuStrip inventoryMenu = new ContextMenuStrip();
@@ -303,7 +303,7 @@ namespace DriverUpdater
             AddCategoryColumn(inventoryGrid);
             AppStyle.AddTextColumn(inventoryGrid, "Dispositivo", 49, 176);
             AppStyle.AddTextColumn(inventoryGrid, "Fornecedor", 23, 100);
-            AppStyle.AddTextColumn(inventoryGrid, "Versão instalada", 15, 105);
+            AppStyle.AddTextColumn(inventoryGrid, "Versão do driver", 15, 105);
             AppStyle.AddTextColumn(inventoryGrid, "Data do driver", 13, 95);
             panel.Controls.Add(inventoryGrid, 0, 2);
             card.Controls.Add(panel);
@@ -538,7 +538,7 @@ namespace DriverUpdater
                 return;
 
             readingInventory = true;
-            inventoryStatus.Text = "Carregando drivers instalados…";
+            inventoryStatus.Text = "Carregando dispositivos…";
             toolTip.SetToolTip(inventoryStatus, string.Empty);
             UpdateControls();
             try
@@ -549,7 +549,7 @@ namespace DriverUpdater
             }
             catch (Exception error)
             {
-                string message = "Falha ao ler os drivers instalados. " + DriverServices.DescribeError(error);
+                string message = "Falha ao ler os dispositivos. " + DriverServices.DescribeError(error);
                 inventoryStatus.Text = message;
                 toolTip.SetToolTip(inventoryStatus, message);
                 if (inventory.Count > 0)
@@ -573,23 +573,25 @@ namespace DriverUpdater
             CompareInfo compare = CultureInfo.GetCultureInfo("pt-BR").CompareInfo;
             var matches = inventory.Where(driver => query.Length == 0 ||
                 Contains(compare, driver.Device, query) || Contains(compare, driver.Manufacturer, query) ||
-                Contains(compare, driver.Version, query)).ToList();
+                Contains(compare, driver.VersionDisplay, query) || Contains(compare, DriverCategoryIcons.GetLabel(driver.Class), query)).ToList();
 
             inventoryGrid.Rows.Clear();
             foreach (InstalledDriver driver in matches)
             {
                 int index = inventoryGrid.Rows.Add(categoryIcons.GetIcon(driver.Class, DeviceDpi), Display(driver.Device),
-                    Display(driver.Manufacturer), Display(driver.Version), DisplayDate(driver.Date));
+                    Display(driver.Manufacturer), driver.VersionDisplay, DisplayDate(driver.Date));
                 DataGridViewRow row = inventoryGrid.Rows[index];
                 row.Tag = driver;
                 SetCategoryDescription(row.Cells[0], driver.Class);
             }
             inventoryGrid.ClearSelection();
             UpdateInventoryProperties();
-            inventoryTitle.Text = inventory.Count == 1 ? "1 driver instalado" : inventory.Count + " drivers instalados";
-            inventoryStatus.Text = inventory.Count == 0 ? "Nenhum driver foi retornado pelo Windows." :
-                query.Length == 0 ? string.Empty :
-                matches.Count + " de " + inventory.Count + " drivers exibidos.";
+            inventoryTitle.Text = inventory.Count == 1 ? "1 dispositivo detectado" : inventory.Count + " dispositivos detectados";
+            int missing = matches.Count(driver => driver.MissingDriver);
+            string status = query.Length == 0 ? string.Empty : matches.Count + " de " + inventory.Count + " dispositivos exibidos. ";
+            if (missing > 0)
+                status += missing == 1 ? "1 dispositivo sem driver." : missing + " dispositivos sem driver.";
+            inventoryStatus.Text = inventory.Count == 0 ? "Nenhum dispositivo foi retornado pelo Windows." : status.TrimEnd();
             toolTip.SetToolTip(inventoryStatus, string.Empty);
         }
 
@@ -644,6 +646,7 @@ namespace DriverUpdater
                     SetCategoryDescription(row.Cells[OfferIconColumn], driverClass);
                     row.Cells[OfferNameColumn].ToolTipText = string.IsNullOrWhiteSpace(offer.Manufacturer) ? offer.Title :
                         offer.Title + "\r\nFornecedor do pacote: " + offer.Manufacturer;
+                    row.Cells[OfferNameColumn].ToolTipText += "\r\n" + DriverServices.DescribeRestart(offer);
                     row.Cells[OfferSourceColumn].ToolTipText = offer.Nvidia != null ?
                         (offer.FromNvidiaApp ? "Recomendação do NVIDIA App confirmada no catálogo da NVIDIA." : "Pacote do catálogo oficial da NVIDIA.") :
                         "Windows Update · " + OfferType(offer);
@@ -660,15 +663,19 @@ namespace DriverUpdater
                 ? (result.Offers.Count == 1 ? "1 atualização de vídeo encontrada" : result.Offers.Count + " atualizações de vídeo encontradas")
                 : (result.Offers.Count == 1 ? "1 atualização encontrada" : result.Offers.Count + " atualizações encontradas");
             LayoutEmptyResult();
-            allDriversCurrent.Visible = !videoOnly && !result.Partial && result.Offers.Count == 0;
+            allDriversCurrent.Visible = !videoOnly && !result.Partial && result.Offers.Count == 0 && result.MissingDrivers == 0;
             if (result.Partial)
                 SetUpdateStatus("Busca parcial", result.Warnings ?? "Uma das fontes retornou um resultado parcial. Tente buscar novamente.");
+            else if (!videoOnly && result.Offers.Count == 0 && result.MissingDrivers > 0)
+                SetUpdateStatus("Há dispositivos sem driver", "As fontes não ofereceram um pacote. Veja os dispositivos e o suporte do fabricante.");
             else if (result.Offers.Count == 0)
                 SetUpdateStatus("Busca concluída", videoOnly
                     ? "As fontes consultadas não ofereceram atualizações de vídeo. Veja os downloads oficiais em Drivers de vídeo."
                     : "As fontes consultadas não ofereceram atualizações de driver para este computador.");
             else
-                SetUpdateStatus("Busca concluída", "Marque as atualizações que você deseja instalar.");
+                SetUpdateStatus("Busca concluída", !videoOnly && result.MissingDrivers > 0
+                    ? "Marque as atualizações desejadas. Confira também os itens sem driver na aba Dispositivos."
+                    : "Marque as atualizações que você deseja instalar.");
             UpdateControls();
         }
 
@@ -697,7 +704,7 @@ namespace DriverUpdater
             }
 
             bool firmware = windows.Any(IsFirmware);
-            if (nvidia == null ? !ConfirmWindowsInstall(selected.Count, firmware) :
+            if (nvidia == null ? !ConfirmWindowsInstall(windows, firmware) :
                 !NvidiaInstallConfirmation.Confirm(this, nvidia.Nvidia, selected.Count, firmware))
                 return;
 
@@ -724,10 +731,13 @@ namespace DriverUpdater
                     windowsInstalledBeforeNvidia = true;
                 }
 
-                await OpenNvidiaInstallerAsync(nvidia.Nvidia);
+                await RunNvidiaInstallerAsync(nvidia.Nvidia);
                 if (!windowsInstalledBeforeNvidia)
                     ClearOffers();
-                SetUpdateStatus("Instalador da NVIDIA aberto", "Conclua a instalação na janela da NVIDIA. Depois, busque novamente para conferir a versão.");
+                bool? restartPending = await Task.Run(() => DriverServices.IsRestartPending());
+                ShowNvidiaCompletion(restartPending);
+                if (!windowsInstalledBeforeNvidia)
+                    await RefreshInventoryAsync();
             }
             catch (OperationCanceledException)
             {
@@ -751,11 +761,25 @@ namespace DriverUpdater
                 await RefreshInventoryAsync();
         }
 
-        private bool ConfirmWindowsInstall(int count, bool includesFirmware)
+        private void ShowNvidiaCompletion(bool? restartPending)
         {
+            if (restartPending == true)
+                SetUpdateStatus("Reinício recomendado", "O Windows indica um reinício pendente. Salve seu trabalho e reinicie para concluir as atualizações.");
+            else
+                SetUpdateStatus("Instalador NVIDIA encerrado", "Siga a orientação de reinício exibida pela NVIDIA. Busque novamente para conferir a versão.");
+        }
+
+        private bool ConfirmWindowsInstall(IList<DriverOffer> windows, bool includesFirmware)
+        {
+            int count = windows.Count;
             string action = count == 1 ? "Instalar a atualização selecionada?" :
                 "Instalar as " + count + " atualizações selecionadas?";
-            string message = action + "\r\n\r\nO Windows pode solicitar permissão de administrador e pedir que você reinicie o computador ao final.";
+            string restart = windows.Any(offer => offer.Restart == RestartBehavior.Required)
+                ? "Pelo menos um pacote exige reinício após instalar."
+                : windows.All(offer => offer.Restart == RestartBehavior.NotExpected)
+                    ? "Os pacotes selecionados dispensam reinício."
+                    : "O resultado da instalação informará se é preciso reiniciar.";
+            string message = action + "\r\n\r\nO Windows pode solicitar permissão de administrador.\r\n" + restart;
             if (includesFirmware)
                 message += "\r\n\r\nA seleção inclui firmware. Mantenha o computador ligado durante a atualização.";
             return MessageBox.Show(this, message, AppStyle.Name, MessageBoxButtons.YesNo,
@@ -773,7 +797,7 @@ namespace DriverUpdater
             }
         }
 
-        private async Task OpenNvidiaInstallerAsync(NvidiaDriverOffer offer)
+        private async Task RunNvidiaInstallerAsync(NvidiaDriverOffer offer)
         {
             SetUpdateStatus("Conferindo NVIDIA…", "Verificando o adaptador e a versão de driver instalada.");
             var current = await Task.Run(() => DriverServices.ReadInventory());
@@ -801,9 +825,8 @@ namespace DriverUpdater
                     cancellation.Token.ThrowIfCancellationRequested();
                     activeDownload = null;
                     UpdateControls();
-                    SetUpdateStatus("Abrindo instalador…", "O Windows poderá pedir autorização de administrador.");
-                    await Task.Run(() => NvidiaPackage.Launch(path));
-                    path = null; // The download is now owned by the launched installer.
+                    SetUpdateStatus("Instalador NVIDIA", "Conclua a instalação na janela oficial da NVIDIA.");
+                    await Task.Run(() => NvidiaPackage.RunInstaller(path));
                 }
                 finally
                 {
@@ -837,7 +860,7 @@ namespace DriverUpdater
             switch (result)
             {
                 case InstallWindow.Success:
-                    return "Instalação concluída. Busque novamente para consultar outras atualizações.";
+                    return "Instalação concluída. O Windows Update não indicou reinicialização.";
                 case InstallWindow.SuccessWithRestart:
                     return "Instalação concluída. Reinicie o computador para finalizar as atualizações.";
                 case InstallWindow.IncompleteWithRestart:

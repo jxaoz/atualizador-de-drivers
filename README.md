@@ -11,10 +11,12 @@ Aplicativo para Windows 10 e 11, disponível com instalador ou em versão portá
 1. Execute o arquivo que termina em `-Setup.exe` ou extraia o ZIP portátil e abra `DriversLicense.exe`. O aplicativo usa o .NET Framework 4.8 ou superior.
 2. Clique no velocímetro **Buscar atualizações**. A coluna **Origem** identifica as ofertas do Windows Update, do catálogo oficial da NVIDIA e as recomendações verificadas do NVIDIA App.
 3. Marque os pacotes desejados e clique em **Instalar selecionados**. Para o NVIDIA GeForce Game Ready, o Drivers License pede o aceite da licença, baixa o driver e valida a assinatura digital da NVIDIA antes de abrir o instalador oficial. Conclua a instalação na janela da NVIDIA e busque novamente para conferir a versão.
-4. Em **Drivers instalados**, identifique as categorias pelos ícones. Clique com o botão direito em um driver e escolha **Propriedades**. Para ver o painel nativo do dispositivo, clique em **Abrir no Windows**.
+4. Em **Dispositivos**, veja os componentes presentes que o Windows detectou, incluindo itens **Sem driver**. Clique com o botão direito e escolha **Propriedades** para abrir o dispositivo no Windows ou localizar o suporte do fabricante.
 5. Em **Drivers de vídeo**, veja a versão instalada ou filtre a busca para vídeo. Para placas NVIDIA, AMD e Intel, **Downloads oficiais** abre a página do fabricante.
 
-Quando uma busca completa termina sem ofertas, a área de resultados exibe **Todos os drivers estão em dia!**. O interruptor **Modo noturno**, no topo, salva o tema escolhido para a próxima abertura.
+Quando uma busca completa termina sem ofertas e sem dispositivos identificados como sem driver, a área de resultados exibe **Todos os drivers estão em dia!**. A mensagem se refere às fontes consultadas. Alguns fabricantes distribuem pacotes apenas no próprio site. [Orientação da Microsoft sobre drivers de fabricantes](https://support.microsoft.com/en-us/windows/hardware/drivers/update-drivers-through-device-manager-in-windows)
+
+Abra **Propriedades** de uma oferta para conferir a previsão de reinício. Após instalar, o aplicativo usa o resultado do Windows Update para indicar se precisa reiniciar. Para o pacote NVIDIA, siga a orientação do instalador oficial. O interruptor **Modo noturno**, no topo, salva o tema escolhido para a próxima abertura.
 
 ![Exemplo ilustrativo de drivers com ícones de vídeo, áudio, rede, USB e outras categorias](docs/categorias.png)
 

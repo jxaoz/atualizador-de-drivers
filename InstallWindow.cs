@@ -114,6 +114,8 @@ namespace DriverUpdater
             string summary = installed + " de " + selections.Count + " atualizações instaladas.";
             if (reboot)
                 summary += " O Windows solicita a reinicialização do computador.";
+            else if (complete && installed > 0)
+                summary += " Nenhum pacote instalado solicitou reinicialização.";
             SetStatus(summary);
         }
 

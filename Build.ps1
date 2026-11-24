@@ -13,7 +13,7 @@ if (-not (Test-Path -LiteralPath $compiler)) {
 
 $files = @('Program.cs', 'MainWindow.cs', 'InstallWindow.cs', 'AppStyle.cs', 'DashboardVisuals.cs',
     'SpeedometerButton.cs', 'DriverServices.cs', 'DriverProperties.cs', 'DriverCategoryIcons.cs',
-    'ThemeToggle.cs', 'AllDriversCurrent.cs', 'VideoDriversWindow.cs', 'DriverSearch.cs',
+    'ThemeToggle.cs', 'AllDriversCurrent.cs', 'VideoDriversWindow.cs', 'DriverSearch.cs', 'ManufacturerSupport.cs',
     'NvidiaCatalog.cs', 'NvidiaAppClient.cs', 'NvidiaPackage.cs', 'NvidiaInstallConfirmation.cs') |
     ForEach-Object { Join-Path $PSScriptRoot $_ }
 $resolvedOutput = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputPath)
