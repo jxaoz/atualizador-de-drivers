@@ -24,6 +24,12 @@ namespace DriverUpdater
 
     internal enum RestartBehavior { Unknown, NotExpected, Required, Possible }
 
+    internal sealed class WindowsDriverTarget
+    {
+        public string HardwareId, Class;
+        public DateTime? Date;
+    }
+
     internal sealed class DriverOffer
     {
         public string Title, Manufacturer, Class, Id;
@@ -36,11 +42,14 @@ namespace DriverUpdater
         public bool FromNvidiaApp;
         public string AssociatedDevice;
         public RestartBehavior Restart;
+        public List<WindowsDriverTarget> WindowsTargets;
+        public readonly List<InstalledDriver> Devices = new List<InstalledDriver>();
     }
 
     internal sealed class DriverScan
     {
         public List<DriverOffer> Offers = new List<DriverOffer>();
+        public List<InstalledDriver> Inventory;
         public bool Partial;
         public string Warnings;
         public int MissingDrivers;
@@ -192,6 +201,10 @@ namespace DriverUpdater
                 if (!seen.Add(Tuple.Create(id, revision)))
                     continue;
 
+                List<WindowsDriverTarget> targets = ReadOfferTargets(update);
+                var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (WindowsDriverTarget target in targets)
+                    ids.Add(target.HardwareId);
                 scan.Offers.Add(new DriverOffer
                 {
                     Id = id.ToString("D"),
@@ -201,7 +214,8 @@ namespace DriverUpdater
                     Class = ReadText(ReadDriverProperty(() => update.DriverClass)),
                     Date = ReadOfferDate(ReadDriverProperty(() => update.DriverVerDate)),
                     Restart = ReadRestartBehavior(ReadDriverProperty(() => update.InstallationBehavior.RebootBehavior)),
-                    HardwareIds = ReadOfferHardwareIds(update),
+                    HardwareIds = CopyHardwareIds(ids),
+                    WindowsTargets = targets,
                     Optional = Equals(ReadDriverProperty(() => update.BrowseOnly), true) ||
                         Equals(ReadDriverProperty(() => update.DeploymentAction), OptionalInstallation)
                 });
@@ -429,19 +443,36 @@ namespace DriverUpdater
             catch (COMException) { return null; }
         }
 
-        private static string[] ReadOfferHardwareIds(dynamic update)
+        private static List<WindowsDriverTarget> ReadOfferTargets(dynamic update)
         {
-            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            AddHardwareIds(ids, ReadDriverProperty(() => update.DriverHardwareID));
+            var targets = new List<WindowsDriverTarget>();
+            AddOfferTarget(targets, update);
             dynamic entries = ReadDriverProperty(() => update.WindowsDriverUpdateEntries);
             if (entries != null)
             {
                 object count = ReadDriverProperty(() => entries.Count);
                 int entryCount = count is int ? (int)count : 0;
                 for (int index = 0; index < entryCount; index++)
-                    AddHardwareIds(ids, ReadDriverProperty(() => entries.Item(index).DriverHardwareID));
+                {
+                    dynamic entry = ReadDriverProperty(() => entries.Item(index));
+                    if (entry != null)
+                        AddOfferTarget(targets, entry);
+                }
             }
-            return CopyHardwareIds(ids);
+            return targets;
+        }
+
+        private static void AddOfferTarget(List<WindowsDriverTarget> targets, dynamic entry)
+        {
+            string id = ReadText(ReadDriverProperty(() => entry.DriverHardwareID));
+            if (id.Length == 0)
+                return;
+            targets.Add(new WindowsDriverTarget
+            {
+                HardwareId = id,
+                Class = ReadText(ReadDriverProperty(() => entry.DriverClass)),
+                Date = ReadOfferDate(ReadDriverProperty(() => entry.DriverVerDate))
+            });
         }
 
         private static void AddHardwareIds(HashSet<string> target, object value)

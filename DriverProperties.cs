@@ -27,7 +27,7 @@ namespace DriverUpdater
                 }, driver.HardwareIds, driver.DeviceInstanceId, driver.Manufacturer ?? string.Empty);
         }
 
-        public static void Show(IWin32Window owner, DriverOffer offer, string associatedDevice)
+        public static void Show(IWin32Window owner, DriverOffer offer, string associatedDevice, InstalledDriver device = null)
         {
             if (offer.ManufacturerPackage != null)
             {
@@ -37,7 +37,7 @@ namespace DriverUpdater
                         Field("Dispositivo associado", associatedDevice),
                         Field("Fornecedor", DriverSearch.GetSource(offer)),
                         Field("Servidor oficial", offer.ManufacturerPackage.DownloadUrl.IdnHost),
-                        Field("Versão instalada", offer.ManufacturerPackage.InstalledVersion),
+                        Field("Versão instalada", device == null ? offer.ManufacturerPackage.InstalledVersion : device.VersionDisplay),
                         Field("Versão do pacote", offer.ManufacturerPackage.Version),
                         Field("Data do driver", DisplayDate(offer.Date)),
                         Field("Reinicialização", DriverServices.DescribeRestart(offer))

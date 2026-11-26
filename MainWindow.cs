@@ -16,9 +16,9 @@ namespace DriverUpdater
     {
         private const int OfferCheckColumn = 0;
         private const int OfferIconColumn = 1;
-        private const int OfferNameColumn = 2;
-        private const int OfferDeviceColumn = 3;
-        private const int OfferSourceColumn = 4;
+        private const int DriverNameColumn = 2;
+        private const int OfferDetailsColumn = 4;
+        private const int OfferSourceColumn = 5;
         private const int WindowSizeMessage = 0x0005;
         private const int SizeMinimized = 1;
         private const uint InvalidateWindow = 0x0001;
@@ -26,7 +26,7 @@ namespace DriverUpdater
         private const uint RepaintImmediately = 0x0100;
 
         private readonly Panel pageHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = Padding.Empty };
-        private readonly Button updateTab = AppStyle.MakeButton("&Atualizações", true, 144);
+        private readonly Button updateTab = AppStyle.MakeButton("&Drivers do PC", true, 144);
         private readonly Button inventoryTab = AppStyle.MakeButton("&Dispositivos", false, 168);
         private readonly ThemeToggle themeToggle = new ThemeToggle();
         private readonly SpeedometerButton scanButton = new SpeedometerButton { Dock = DockStyle.Fill, Margin = Padding.Empty };
@@ -38,23 +38,26 @@ namespace DriverUpdater
         private readonly Button inventoryProperties = AppStyle.MakeButton("Propriedades", false, 123);
         private readonly Label scanTitle = HeroTitle("Pronto para buscar", 29);
         private readonly Label updateStatus = AppStyle.MakeLabel("Inicie a busca para ver quais drivers têm atualizações disponíveis para este computador.", AppStyle.HeaderText);
-        private readonly Label resultsTitle = SectionTitle("Resultados da busca");
+        private readonly Label resultsTitle = SectionTitle("Drivers do PC");
         private readonly Label inventoryTitle = HeroTitle("Dispositivos detectados", 27);
         private readonly Label inventoryStatus = AppStyle.MakeLabel("Carregando dispositivos…", AppStyle.Muted);
         private readonly Label selectionStatus = AppStyle.MakeLabel(string.Empty, AppStyle.Text);
-        private readonly DataGridView updateGrid = AppStyle.MakeGrid("Atualizações disponíveis");
-        private readonly AllDriversCurrent allDriversCurrent = new AllDriversCurrent { Visible = false };
+        private readonly DataGridView updateGrid = AppStyle.MakeGrid("Drivers e atualizações do computador");
         private readonly DataGridView inventoryGrid = AppStyle.MakeGrid("Dispositivos detectados");
         private readonly TextBox filter = new TextBox { AccessibleName = "Filtrar dispositivos", Dock = DockStyle.Fill, Margin = Padding.Empty };
         private readonly ToolTip toolTip = new ToolTip();
         private readonly ContextMenuStrip updateMenu = new ContextMenuStrip();
         private readonly ContextMenuStrip inventoryMenu = new ContextMenuStrip();
+        private readonly ToolStripMenuItem packageProperties = new ToolStripMenuItem("Detalhes da atualização…");
         private readonly DriverCategoryIcons categoryIcons = new DriverCategoryIcons();
         private readonly TableLayoutPanel updatePage;
         private readonly Control inventoryPage;
         private Bitmap brandImage;
         private CancellationTokenSource activeDownload;
         private List<InstalledDriver> inventory = new List<InstalledDriver>();
+        private readonly List<DriverOffer> extraOffers = new List<DriverOffer>();
+        private DriverScan displayedScan;
+        private bool showingVideoOnly;
         private bool hasInventory;
         private bool readingInventory;
         private bool scanning;
@@ -96,19 +99,24 @@ namespace DriverUpdater
             manufacturerButton.Click += async delegate { await AddManufacturerPackageAsync(); };
             installButton.Click += async delegate { await InstallAsync(); };
             cancelDownload.Click += delegate { CancelPackageDownload(); };
-            refreshButton.Click += async delegate { await RefreshInventoryAsync(); };
+            refreshButton.Click += async delegate { await RefreshInventoryAsync(true); };
             inventoryProperties.Click += delegate { OpenProperties(inventoryGrid.CurrentRow); };
             filter.TextChanged += delegate { DisplayInventory(); };
             inventoryGrid.SelectionChanged += delegate { UpdateInventoryProperties(); };
             AttachDriverActions(inventoryGrid, inventoryMenu);
             AttachDriverActions(updateGrid, updateMenu);
-            updateGrid.CellValueChanged += delegate { UpdateControls(); };
+            updateGrid.CellValueChanged += SynchronizePackageSelection;
             updateGrid.CurrentCellDirtyStateChanged += delegate
             {
                 if (updateGrid.IsCurrentCellDirty && updateGrid.CurrentCell is DataGridViewCheckBoxCell)
                     updateGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
             };
-            Shown += async delegate { await RefreshInventoryAsync(); };
+            Shown += async delegate
+            {
+                await RefreshInventoryAsync();
+                if (hasInventory && !IsDisposed && !Disposing)
+                    await ScanAsync(false, true);
+            };
             FormClosing += delegate(object sender, FormClosingEventArgs args)
             {
                 if (installing && args.CloseReason == CloseReason.UserClosing)
@@ -165,21 +173,14 @@ namespace DriverUpdater
                 SortMode = DataGridViewColumnSortMode.NotSortable
             });
             AddCategoryColumn(updateGrid);
-            AppStyle.AddTextColumn(updateGrid, "Atualização", 54, 168);
-            AppStyle.AddTextColumn(updateGrid, "Dispositivo associado", 31, 121);
-            updateGrid.Columns[OfferDeviceColumn].HeaderCell.ToolTipText = "Dispositivos com ID de hardware ou de compatibilidade correspondente.";
-            AppStyle.AddTextColumn(updateGrid, "Origem", 16, 114);
-            AppStyle.AddTextColumn(updateGrid, "Data do driver", 13, 98);
-            updateGrid.Columns[OfferNameColumn].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
-            updateGrid.Columns[OfferDeviceColumn].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
+            AppStyle.AddTextColumn(updateGrid, "Dispositivo", 40, 145);
+            AppStyle.AddTextColumn(updateGrid, "Versão instalada", 17, 115);
+            AppStyle.AddTextColumn(updateGrid, "Atualização ou situação", 48, 160);
+            AppStyle.AddTextColumn(updateGrid, "Origem", 17, 105);
+            updateGrid.Columns[DriverNameColumn].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
+            updateGrid.Columns[OfferDetailsColumn].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
             updateGrid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCellsExceptHeaders;
-            var results = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = Padding.Empty };
-            results.Controls.Add(updateGrid);
-            results.Controls.Add(allDriversCurrent);
-            allDriversCurrent.BringToFront();
-            updateGrid.Resize += delegate { LayoutEmptyResult(); };
-            updateGrid.ColumnHeadersHeightChanged += delegate { LayoutEmptyResult(); };
-            panel.Controls.Add(results, 0, 1);
+            panel.Controls.Add(updateGrid, 0, 1);
 
             var actions = new TableLayoutPanel
             {
@@ -207,13 +208,6 @@ namespace DriverUpdater
             float heroHeight = (page.ClientSize.Height < 540 * scale ? 181 : 234) * scale;
             if (page.RowStyles[0].Height != heroHeight)
                 page.RowStyles[0].Height = heroHeight;
-        }
-
-        private void LayoutEmptyResult()
-        {
-            int headerHeight = updateGrid.ColumnHeadersHeight;
-            allDriversCurrent.SetBounds(updateGrid.Left, updateGrid.Top + headerHeight,
-                updateGrid.ClientSize.Width, Math.Max(0, updateGrid.ClientSize.Height - headerHeight));
         }
 
         private Control BuildScanHero()
@@ -422,6 +416,16 @@ namespace DriverUpdater
                     open();
             };
             menu.Items.Add(properties);
+            if (grid == updateGrid)
+            {
+                packageProperties.Click += delegate
+                {
+                    var entry = updateGrid.CurrentRow == null ? null : updateGrid.CurrentRow.Tag as DriverRow;
+                    if (entry != null && entry.Offer != null)
+                        DriverProperties.Show(this, entry.Offer, entry.Device == null ? entry.Offer.AssociatedDevice : entry.Device.Device, entry.Device);
+                };
+                menu.Items.Add(packageProperties);
+            }
 
             grid.MouseUp += delegate(object sender, MouseEventArgs args)
             {
@@ -432,7 +436,7 @@ namespace DriverUpdater
                     return;
 
                 DataGridViewRow row = grid.Rows[hit.RowIndex];
-                int column = grid == updateGrid ? Math.Max(OfferNameColumn, hit.ColumnIndex) : Math.Max(1, hit.ColumnIndex);
+                int column = grid == updateGrid ? Math.Max(DriverNameColumn, hit.ColumnIndex) : Math.Max(1, hit.ColumnIndex);
                 grid.CurrentCell = row.Cells[column];
                 row.Selected = true;
                 grid.Focus();
@@ -468,6 +472,11 @@ namespace DriverUpdater
             Action open = GetPropertiesAction(row);
             if (open == null)
                 return;
+            if (grid == updateGrid)
+            {
+                var entry = row.Tag as DriverRow;
+                packageProperties.Visible = entry != null && entry.Device != null && entry.Offer != null;
+            }
             menu.Tag = open;
             menu.Show(grid, location);
         }
@@ -483,14 +492,12 @@ namespace DriverUpdater
         {
             if (row == null)
                 return null;
-            var driver = row.Tag as InstalledDriver;
+            var entry = row.Tag as DriverRow;
+            var driver = entry == null ? row.Tag as InstalledDriver : entry.Device;
             if (driver != null)
                 return () => DriverProperties.Show(this, driver);
-            var offer = row.Tag as DriverOffer;
-            if (offer == null)
-                return null;
-            string device = row.Cells[OfferDeviceColumn].Value as string;
-            return () => DriverProperties.Show(this, offer, device);
+            return entry == null || entry.Offer == null ? (Action)null :
+                () => DriverProperties.Show(this, entry.Offer, entry.Offer.AssociatedDevice);
         }
 
         private void UpdateInventoryProperties()
@@ -538,7 +545,7 @@ namespace DriverUpdater
             cell.ToolTipText = category;
         }
 
-        private async Task RefreshInventoryAsync()
+        private async Task RefreshInventoryAsync(bool userRequested = false)
         {
             if (readingInventory)
                 return;
@@ -549,12 +556,19 @@ namespace DriverUpdater
             UpdateControls();
             try
             {
-                inventory = await Task.Run(() => DriverServices.ReadInventory());
+                var current = await Task.Run(() => DriverServices.ReadInventory());
+                if (IsDisposed || Disposing)
+                    return;
+                inventory = current;
                 hasInventory = true;
-                RefreshDeviceMatches();
+                ClearOffers();
+                if (userRequested)
+                    SetUpdateStatus("Pronto para buscar", "Inicie a busca para conferir o inventário atualizado.");
             }
             catch (Exception error)
             {
+                if (IsDisposed || Disposing)
+                    return;
                 string message = "Falha ao ler os dispositivos. " + DriverServices.DescribeError(error);
                 inventoryStatus.Text = message;
                 toolTip.SetToolTip(inventoryStatus, message);
@@ -565,7 +579,8 @@ namespace DriverUpdater
             finally
             {
                 readingInventory = false;
-                UpdateControls();
+                if (!IsDisposed && !Disposing)
+                    UpdateControls();
             }
             DisplayInventory();
         }
@@ -612,51 +627,47 @@ namespace DriverUpdater
             await ScanAsync(true);
         }
 
-        private async Task ScanAsync(bool videoOnly)
+        private async Task ScanAsync(bool videoOnly, bool reuseInventory = false)
         {
-            if (scanning || installing)
+            if (scanning || installing || readingInventory)
                 return;
 
             scanning = true;
-            ClearOffers();
-            SetUpdateStatus(videoOnly ? "Buscando vídeo…" : "Buscando drivers…", "A consulta pode levar alguns minutos.");
+            SetUpdateStatus(videoOnly ? "Buscando vídeo…" : "Buscando drivers…",
+                "Consultando o Windows Update e os catálogos oficiais para os dispositivos sem oferta.");
             UpdateControls();
             try
             {
-                DriverScan result = await DriverSearch.ScanAsync(Task.Run(() => DriverServices.ReadInventory()), videoOnly);
-                ShowOffers(result, videoOnly);
+                var current = reuseInventory ? Task.FromResult(inventory) : Task.Run(() => DriverServices.ReadInventory());
+                DriverScan result = await DriverSearch.ScanAsync(current, videoOnly);
+                if (!IsDisposed && !Disposing)
+                    ShowOffers(result, videoOnly);
             }
             catch (Exception error)
             {
-                SetUpdateStatus("Falha na busca", DriverServices.DescribeError(error));
+                if (!IsDisposed && !Disposing)
+                    SetUpdateStatus("Falha na busca", DriverServices.DescribeError(error));
             }
             finally
             {
                 scanning = false;
-                UpdateControls();
+                if (!IsDisposed && !Disposing)
+                    UpdateControls();
             }
         }
 
         private void ShowOffers(DriverScan result, bool videoOnly)
         {
-            refreshingOffers = true;
-            try
+            if (result.Inventory != null)
             {
-                foreach (DriverOffer offer in result.Offers)
-                    AddOfferRow(offer);
-                RefreshDeviceMatches();
-                updateGrid.ClearSelection();
+                inventory = result.Inventory;
+                hasInventory = true;
+                DisplayInventory();
             }
-            finally
-            {
-                refreshingOffers = false;
-            }
-
-            resultsTitle.Text = videoOnly
-                ? (result.Offers.Count == 1 ? "1 atualização de vídeo encontrada" : result.Offers.Count + " atualizações de vídeo encontradas")
-                : (result.Offers.Count == 1 ? "1 atualização encontrada" : result.Offers.Count + " atualizações encontradas");
-            LayoutEmptyResult();
-            allDriversCurrent.Visible = !videoOnly && !result.Partial && result.Offers.Count == 0 && result.MissingDrivers == 0;
+            displayedScan = result;
+            showingVideoOnly = videoOnly;
+            extraOffers.Clear();
+            RenderDriverRows();
             if (result.Partial)
                 SetUpdateStatus("Busca parcial", result.Warnings ?? "Uma das fontes retornou um resultado parcial. Tente buscar novamente.");
             else if (!videoOnly && result.Offers.Count == 0 && result.MissingDrivers > 0)
@@ -664,28 +675,79 @@ namespace DriverUpdater
             else if (result.Offers.Count == 0)
                 SetUpdateStatus("Busca concluída", videoOnly
                     ? "As fontes consultadas não ofereceram atualizações de vídeo. Veja os downloads oficiais em Drivers de vídeo."
-                    : "As fontes consultadas não ofereceram atualizações de driver para este computador.");
+                    : "Nenhuma atualização encontrada nas fontes consultadas. ☺");
             else
-                SetUpdateStatus("Busca concluída", !videoOnly && result.MissingDrivers > 0
-                    ? "Marque as atualizações desejadas. Confira também os itens sem driver na aba Dispositivos."
-                    : "Marque as atualizações que você deseja instalar.");
+                SetUpdateStatus("Busca concluída", "Veja a versão instalada e marque as atualizações desejadas na lista.");
             UpdateControls();
         }
 
-        private void AddOfferRow(DriverOffer offer)
+        private void RenderDriverRows()
         {
-            string driverClass = DriverCategoryIcons.ResolveOfferClass(offer.Class, offer.Title);
-            int index = updateGrid.Rows.Add(false, categoryIcons.GetIcon(driverClass, DeviceDpi), offer.Title,
-                Display(offer.AssociatedDevice), DriverSearch.GetSource(offer), DisplayDate(offer.Date));
+            var offers = displayedScan == null ? extraOffers : displayedScan.Offers.Concat(extraOffers).ToList();
+            var selected = new HashSet<DriverOffer>(GetSelectedOffers());
+            var rows = DriverSearch.BuildRows(inventory, offers, showingVideoOnly).ToList();
+            refreshingOffers = true;
+            try
+            {
+                updateGrid.Rows.Clear();
+                foreach (DriverRow row in rows)
+                    AddDriverRow(row, row.Offer != null && selected.Contains(row.Offer));
+                updateGrid.ClearSelection();
+            }
+            finally
+            {
+                refreshingOffers = false;
+            }
+            int count = rows.Where(row => row.Device != null).Select(row => row.Device).Distinct().Count();
+            resultsTitle.Text = (showingVideoOnly ? "Vídeo" : "Drivers do PC") + (hasInventory ? " · " + count : string.Empty) +
+                (offers.Count == 0 ? string.Empty : (offers.Count == 1 ? " · 1 oferta" : " · " + offers.Count + " ofertas"));
+        }
+
+        private void AddDriverRow(DriverRow entry, bool selected)
+        {
+            DriverOffer offer = entry.Offer;
+            InstalledDriver device = entry.Device;
+            string driverClass = device != null && !string.IsNullOrWhiteSpace(device.Class) ? device.Class :
+                offer != null ? DriverCategoryIcons.ResolveOfferClass(offer.Class, offer.Title) : null;
+            string name = device != null ? device.Device : offer.AssociatedDevice ??
+                (offer.ManufacturerPackage == null ? "Pacote oferecido pelo Windows" : "Pacote do fabricante");
+            string installed = device != null ? device.VersionDisplay :
+                offer.ManufacturerPackage != null ? Display(offer.ManufacturerPackage.InstalledVersion) : "—";
+            string status = offer == null ? DriverStatus(device) : offer.Title;
+            if (offer != null && offer.ManufacturerPackage != null)
+            {
+                string version = offer.ManufacturerPackage.Version;
+                if (!string.IsNullOrWhiteSpace(version) && !status.Contains(version))
+                    status += " · " + version;
+            }
+            int index = updateGrid.Rows.Add(selected, categoryIcons.GetIcon(driverClass, DeviceDpi), name, installed,
+                status, offer == null ? "—" : DriverSearch.GetSource(offer));
             DataGridViewRow row = updateGrid.Rows[index];
-            row.Tag = offer;
+            row.Tag = entry;
             SetCategoryDescription(row.Cells[OfferIconColumn], driverClass);
-            row.Cells[OfferNameColumn].ToolTipText = offer.Title +
+            if (device != null)
+                row.Cells[DriverNameColumn].ToolTipText = device.Device + "\r\n" + Display(device.Manufacturer);
+            if (offer == null)
+            {
+                row.Cells[OfferCheckColumn] = new DataGridViewTextBoxCell { Value = string.Empty };
+                row.Cells[OfferCheckColumn].ReadOnly = true;
+                return;
+            }
+            row.Cells[OfferDetailsColumn].ToolTipText = status +
                 (string.IsNullOrWhiteSpace(offer.Manufacturer) ? string.Empty : "\r\nFornecedor do pacote: " + offer.Manufacturer) +
                 "\r\n" + DriverServices.DescribeRestart(offer);
             row.Cells[OfferSourceColumn].ToolTipText = offer.ManufacturerPackage != null ? "Instalador oficial do fabricante." :
                 offer.Nvidia != null ? (offer.FromNvidiaApp ? "Recomendação do NVIDIA App confirmada no catálogo da NVIDIA." :
                     "Pacote do catálogo oficial da NVIDIA.") : "Windows Update · " + OfferType(offer);
+        }
+
+        private string DriverStatus(InstalledDriver device)
+        {
+            if (displayedScan == null)
+                return "Aguardando busca";
+            if (displayedScan.Partial)
+                return "Verificação incompleta";
+            return device.MissingDriver ? "Sem pacote encontrado" : "Sem atualização encontrada";
         }
 
         private async Task AddManufacturerPackageAsync()
@@ -723,18 +785,18 @@ namespace DriverUpdater
                 DriverOffer offer = picker.SelectedOffer;
                 foreach (DataGridViewRow row in updateGrid.Rows)
                 {
-                    var existing = row.Tag as DriverOffer;
+                    var entry = row.Tag as DriverRow;
+                    var existing = entry == null ? null : entry.Offer;
                     if (existing != null && existing.ManufacturerPackage != null &&
                         existing.ManufacturerPackage.DownloadUrl == offer.ManufacturerPackage.DownloadUrl)
                     {
-                        updateGrid.CurrentCell = row.Cells[OfferNameColumn];
+                        updateGrid.CurrentCell = row.Cells[DriverNameColumn];
                         SetUpdateStatus("Pacote já na lista", "Marque o pacote para iniciar a instalação.");
                         return;
                     }
                 }
-                allDriversCurrent.Hide();
-                AddOfferRow(offer);
-                resultsTitle.Text = "Pacotes disponíveis";
+                extraOffers.Add(offer);
+                RenderDriverRows();
                 SetUpdateStatus("Pacote adicionado", "Marque o pacote do fabricante e clique em Instalar selecionados.");
                 UpdateControls();
             }
@@ -1010,11 +1072,10 @@ namespace DriverUpdater
 
         private void ClearOffers()
         {
-            refreshingOffers = true;
-            allDriversCurrent.Hide();
-            updateGrid.Rows.Clear();
-            resultsTitle.Text = "Resultados da busca";
-            refreshingOffers = false;
+            displayedScan = null;
+            extraOffers.Clear();
+            showingVideoOnly = false;
+            RenderDriverRows();
         }
 
         private void SetUpdateStatus(string title, string message, string details = null)
@@ -1032,53 +1093,62 @@ namespace DriverUpdater
             bool busy = scanning || installing;
             if (updateGrid.ReadOnly != busy)
                 updateGrid.ReadOnly = busy;
-            scanButton.Enabled = !busy;
+            scanButton.Enabled = !busy && !readingInventory;
             scanButton.Searching = scanning;
             videoButton.Enabled = !busy && !readingInventory;
             manufacturerButton.Enabled = !busy && !readingManufacturerCatalog;
-            refreshButton.Enabled = !readingInventory && !installing;
+            refreshButton.Enabled = !readingInventory && !busy;
             UpdateInventoryProperties();
             int count = GetSelectedOffers().Count;
             installButton.Enabled = !busy && count > 0;
             cancelDownload.Visible = activeDownload != null;
             cancelDownload.Enabled = activeDownload != null && !activeDownload.IsCancellationRequested;
-            selectionStatus.Text = updateGrid.Rows.Count == 0 ? string.Empty :
+            selectionStatus.Text = count == 0 ? string.Empty :
                 count == 1 ? "1 atualização selecionada" : count + " atualizações selecionadas";
         }
 
         private List<DriverOffer> GetSelectedOffers()
         {
             var selected = new List<DriverOffer>();
+            var seen = new HashSet<DriverOffer>();
             foreach (DataGridViewRow row in updateGrid.Rows)
             {
-                var offer = row.Tag as DriverOffer;
-                if (offer != null && Equals(row.Cells[OfferCheckColumn].Value, true))
-                    selected.Add(offer);
+                var entry = row.Tag as DriverRow;
+                if (entry != null && entry.Offer != null && Equals(row.Cells[OfferCheckColumn].Value, true) && seen.Add(entry.Offer))
+                    selected.Add(entry.Offer);
             }
             return selected;
+        }
+
+        private void SynchronizePackageSelection(object sender, DataGridViewCellEventArgs args)
+        {
+            if (refreshingOffers || args.RowIndex < 0 || args.ColumnIndex != OfferCheckColumn)
+                return;
+            DataGridViewRow changed = updateGrid.Rows[args.RowIndex];
+            var selected = changed.Tag as DriverRow;
+            if (selected == null || selected.Offer == null)
+                return;
+            refreshingOffers = true;
+            try
+            {
+                object value = changed.Cells[OfferCheckColumn].Value;
+                foreach (DataGridViewRow row in updateGrid.Rows)
+                {
+                    var entry = row.Tag as DriverRow;
+                    if (entry != null && entry.Offer == selected.Offer && !Equals(row.Cells[OfferCheckColumn].Value, value))
+                        row.Cells[OfferCheckColumn].Value = value;
+                }
+            }
+            finally
+            {
+                refreshingOffers = false;
+            }
+            UpdateControls();
         }
 
         private static bool Contains(CompareInfo compare, string text, string query)
         {
             return text != null && compare.IndexOf(text, query, CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0;
-        }
-
-        private void RefreshDeviceMatches()
-        {
-            foreach (DataGridViewRow row in updateGrid.Rows)
-            {
-                var offer = row.Tag as DriverOffer;
-                if (offer == null || offer.HardwareIds == null || offer.Nvidia != null || offer.ManufacturerPackage != null)
-                    continue;
-
-                var ids = new HashSet<string>(offer.HardwareIds, StringComparer.OrdinalIgnoreCase);
-                string names = string.Join(", ", inventory.Where(driver =>
-                        driver.HardwareIds != null && driver.HardwareIds.Any(ids.Contains))
-                    .Select(driver => driver.Device).Distinct(StringComparer.CurrentCultureIgnoreCase));
-                row.Cells[OfferDeviceColumn].Value = Display(names);
-                row.Cells[OfferDeviceColumn].ToolTipText = names.Length > 0 ? names :
-                    "O Windows Update ofereceu este pacote para o computador. O aplicativo não encontrou um ID correspondente no inventário.";
-            }
         }
 
         private static string OfferType(DriverOffer offer)

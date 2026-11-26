@@ -49,8 +49,6 @@ namespace DriverUpdater
                 result.Warnings = "GIGABYTE: " + DriverServices.DescribeError(error);
             }
 
-            bool manufacturerPc = false;
-
             string source = "Catálogo do computador";
             try
             {
@@ -65,7 +63,6 @@ namespace DriverUpdater
                     string sku = Convert.ToString(pc["SystemSKUNumber"]).Trim();
                     if (brand.StartsWith("Dell", StringComparison.OrdinalIgnoreCase))
                     {
-                        manufacturerPc = true;
                         source = "Dell";
                         if (HexId.IsMatch(sku))
                             result.Offers.AddRange(await FindDellAsync(sku, windows.Build, inventory, onlyUpdates, timeout.Token).ConfigureAwait(false));
@@ -73,7 +70,6 @@ namespace DriverUpdater
                     else if (brand.Equals("HP", StringComparison.OrdinalIgnoreCase) ||
                         brand.StartsWith("Hewlett-Packard", StringComparison.OrdinalIgnoreCase))
                     {
-                        manufacturerPc = true;
                         source = "HP";
                         string boardId = ReadBoardId();
                         if (HexId.IsMatch(boardId))
@@ -81,7 +77,6 @@ namespace DriverUpdater
                     }
                     else if (brand.Equals("LENOVO", StringComparison.OrdinalIgnoreCase))
                     {
-                        manufacturerPc = true;
                         source = "Lenovo";
                         if (MachineType.IsMatch(model))
                             result.Offers.AddRange(await FindLenovoAsync(model.Substring(0, 4), windows.Build, inventory,
@@ -96,8 +91,7 @@ namespace DriverUpdater
                     (error is OperationCanceledException ? "a consulta excedeu o tempo disponível." : DriverServices.DescribeError(error));
             }
 
-            if (!onlyUpdates || !manufacturerPc)
-                AddIntel(result.Offers, inventory, onlyUpdates);
+            AddIntel(result.Offers, inventory, onlyUpdates);
             try { AddAmd(result.Offers, inventory, onlyUpdates); }
             catch (Exception error)
             {
@@ -105,10 +99,26 @@ namespace DriverUpdater
                 result.Warnings = (result.Warnings == null ? string.Empty : result.Warnings + " ") + "AMD: " + DriverServices.DescribeError(error);
             }
 
-            result.Offers = result.Offers.OrderByDescending(offer => ParseVersion(offer.ManufacturerPackage.DriverVersion ?? offer.ManufacturerPackage.Version))
-                .ThenByDescending(offer => offer.Date)
-                .GroupBy(offer => new { offer.Manufacturer, offer.Class, offer.AssociatedDevice })
-                .Select(group => group.First()).OrderBy(offer => offer.Manufacturer).ThenBy(offer => offer.Title).ToList();
+            var seenDevices = new HashSet<Tuple<string, InstalledDriver>>();
+            var packages = new Dictionary<Uri, DriverOffer>();
+            foreach (var offer in result.Offers
+                .OrderByDescending(offer => ParseVersion(offer.ManufacturerPackage.DriverVersion ?? offer.ManufacturerPackage.Version))
+                .ThenByDescending(offer => offer.Date))
+            {
+                if (offer.Devices.Count != 0 && !seenDevices.Add(Tuple.Create(offer.Manufacturer, offer.Devices[0])))
+                    continue;
+                Uri url = offer.ManufacturerPackage.DownloadUrl;
+                DriverOffer existing;
+                if (packages.TryGetValue(url, out existing))
+                {
+                    existing.Devices.AddRange(offer.Devices);
+                    existing.HardwareIds = (existing.HardwareIds ?? new string[0]).Concat(offer.HardwareIds ?? new string[0])
+                        .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                }
+                else
+                    packages.Add(url, offer);
+            }
+            result.Offers = packages.Values.OrderBy(offer => offer.Manufacturer).ThenBy(offer => offer.Title).ToList();
             return result;
         }
 
@@ -156,7 +166,7 @@ namespace DriverUpdater
                         (string)item.Attribute("dateTime"), null, ids);
                 }
             }
-            return offers.GroupBy(offer => offer.ManufacturerPackage.DownloadUrl).Select(group => group.First()).ToList();
+            return offers;
         }
 
         private static string PciId(XElement pci)
@@ -259,7 +269,7 @@ namespace DriverUpdater
                     AddDeviceOffer(offers, inventory, onlyUpdates, "HP", download, item.softpaqSha256, item.title,
                         item.version, driver.driverVersion, driver.driverDate, driver.@class, new[] { driver.deviceMatchId ?? driver.deviceId });
             }
-            return offers.GroupBy(offer => offer.ManufacturerPackage.DownloadUrl).Select(group => group.First()).ToList();
+            return offers;
         }
 
         internal static async Task<List<DriverOffer>> FindLenovoAsync(string machine, int build, IList<InstalledDriver> inventory,
@@ -284,9 +294,9 @@ namespace DriverUpdater
                         try { return await ReadLenovoPackageAsync(item, inventory, onlyUpdates, build, bios, cancellation).ConfigureAwait(false); }
                         finally { limit.Release(); }
                     });
-                foreach (DriverOffer offer in await Task.WhenAll(requests).ConfigureAwait(false))
-                    if (offer != null)
-                        offers.Add(offer);
+                foreach (List<DriverOffer> matches in await Task.WhenAll(requests).ConfigureAwait(false))
+                    if (matches != null)
+                        offers.AddRange(matches);
             }
             return offers;
         }
@@ -299,7 +309,7 @@ namespace DriverUpdater
                 category.IndexOf("firmware", StringComparison.OrdinalIgnoreCase) < 0;
         }
 
-        private static async Task<DriverOffer> ReadLenovoPackageAsync(XElement item, IList<InstalledDriver> inventory,
+        private static async Task<List<DriverOffer>> ReadLenovoPackageAsync(XElement item, IList<InstalledDriver> inventory,
             bool onlyUpdates, int build, string bios, CancellationToken cancellation)
         {
             XElement checksum = item.Element("checksum");
@@ -336,7 +346,7 @@ namespace DriverUpdater
                 var offers = new List<DriverOffer>();
                 AddDeviceOffer(offers, inventory, onlyUpdates, "Lenovo", new Uri(location, filename), (string)installer.Element("CRC"),
                     title, version, version, (string)package.Element("SigningTime"), null, ids);
-                return offers.FirstOrDefault();
+                return offers;
             }
         }
 
@@ -412,8 +422,8 @@ namespace DriverUpdater
                 offer.ManufacturerPackage.DriverVersion = deviceVersion;
                 offer.ManufacturerPackage.InstalledVersion = device.Version;
                 offer.ManufacturerPackage.DownloadHash = digest;
+                offer.Devices.Add(device);
                 offers.Add(offer);
-                return;
             }
         }
 

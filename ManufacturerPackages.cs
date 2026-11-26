@@ -65,7 +65,7 @@ namespace DriverUpdater
         {
             if ((onlyUpdates && !newer) || (device == null && driverClass != "System"))
                 return;
-            offers.Add(new DriverOffer
+            var offer = new DriverOffer
             {
                 Title = name + " " + version, Manufacturer = "GIGABYTE", Class = driverClass, Date = date,
                 AssociatedDevice = device == null ? Board : device.Device,
@@ -77,7 +77,10 @@ namespace DriverUpdater
                     DownloadUrl = new Uri("https://" + GigabyteCdn + "/FileList/Driver/" + file + ".zip"),
                     Publishers = new[] { GigabyteSigner }
                 }
-            });
+            };
+            if (device != null)
+                offer.Devices.Add(device);
+            offers.Add(offer);
         }
 
         internal static bool MatchesDevice(InstalledDriver device, string hardware)
